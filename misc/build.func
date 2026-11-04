@@ -1,0 +1,604 @@
+# shellcheck shell=bash
+#
+# misc/build.func - host-side engine for proxmox-recipes.
+#
+# A recipe (ct/<app>.sh) sets its APP_* metadata, sources this file and
+# calls recipe_main. The flow is:
+#
+#   preflight -> settings (menus) -> validate -> template -> pct create
+#   -> start -> wait for network -> install script (if any) -> summary
+#
+# Recipe metadata (set by ct/<app>.sh):
+#   APP_NAME APP_SLUG APP_DEBIAN_RELEASE APP_DEFAULT_HOSTNAME
+#   APP_DEFAULT_CORES APP_DEFAULT_RAM_MB APP_DEFAULT_DISK_GB
+#   APP_INSTALL_SCRIPT   repo-relative path, or empty for no app
+#
+# Settings. Each one is a plain variable; any that is already set (even
+# to an empty string, for the optional ones) skips its menu, so a caller
+# can preset some or all of them and run without questions:
+#   SETUP_MODE          default | advanced
+#   CT_ID               container ID (default: next free ID)
+#   CT_HOSTNAME
+#   CT_CORES CT_RAM_MB CT_DISK_GB CT_SWAP_MB
+#   CT_STORAGE          storage for the root disk ('rootdir' content)
+#   TMPL_STORAGE        storage for the template ('vztmpl' content)
+#   CT_BRIDGE
+#   CT_IP               dhcp | <ipv4>/<prefix>
+#   CT_GATEWAY          required when CT_IP is static
+#   CT_VLAN             VLAN tag, empty for none
+#   CT_DNS              space separated DNS servers, empty = same as host
+#   CT_PASSWORD         root password, empty = none
+#   CT_SSH_KEY          root SSH public key (key text), empty = none
+#   CT_ONBOOT           yes | no
+#   CONFIRM_CREATE      yes skips the final confirmation
+#   DESTROY_ON_FAILURE  yes | no, what to do with a half-built container
+#
+# Only the menu layer (the ui_* functions) reads input.
+
+set -Eeuo pipefail
+
+RECIPES_RAW_BASE="https://raw.githubusercontent.com/farmnerds-net/proxmox-recipes/main"
+
+# ---- loading repo files -----------------------------------------------------
+
+recipe_fetch() {   # <repo-relative path> -> file content on stdout
+  if [[ -n "${RECIPES_SRC:-}" ]]; then
+    cat -- "${RECIPES_SRC%/}/$1"
+  else
+    curl -fsSL --retry 2 --max-time 30 "${RECIPES_RAW_BASE}/$1"
+  fi
+}
+
+recipe_source() {   # <repo-relative path>
+  local body
+  body=$(recipe_fetch "$1") || {
+    printf 'proxmox-recipes: could not load %s\n' "$1" >&2
+    exit 1
+  }
+  # shellcheck source=/dev/null
+  source /dev/stdin <<<"$body"
+}
+
+recipe_source misc/core.func
+
+# ---- host discovery ---------------------------------------------------------
+
+host_storages() {   # <content type> -> active storages, most free space first
+  pvesm status --content "$1" 2>/dev/null |
+    awk 'NR > 1 && $3 == "active" { print $6, $1 }' |
+    sort -rn | awk '{ print $2 }'
+}
+
+storage_free_gib() {   # <storage>
+  pvesm status 2>/dev/null |
+    awk -v s="$1" '$1 == s { printf "%.0f", $6 / 1048576 }'
+}
+
+host_bridges() {
+  local d
+  for d in /sys/class/net/*/bridge; do
+    [[ -d "$d" ]] || continue
+    d=${d%/bridge}
+    printf '%s\n' "${d##*/}"
+  done | sort
+}
+
+in_list() {   # <needle> <newline separated list>
+  grep -qxF -- "$1" <<<"$2"
+}
+
+default_ctid()    { pvesh get /cluster/nextid; }
+default_storage() { local l; l=$(host_storages rootdir); printf '%s' "${l%%$'\n'*}"; }
+
+default_tmpl_storage() {
+  local l
+  l=$(host_storages vztmpl)
+  if in_list local "$l"; then
+    printf 'local'
+  else
+    printf '%s' "${l%%$'\n'*}"
+  fi
+}
+
+default_bridge() {
+  local l
+  l=$(host_bridges)
+  if in_list vmbr0 "$l"; then
+    printf 'vmbr0'
+  else
+    printf '%s' "${l%%$'\n'*}"
+  fi
+}
+
+# ---- validators (return 0 if valid; no output) ------------------------------
+
+is_uint()       { [[ "$1" =~ ^[0-9]+$ ]]; }
+valid_mode()    { [[ "$1" == default || "$1" == advanced ]]; }
+valid_yesno()   { [[ "$1" == yes || "$1" == no ]]; }
+valid_ctid()    { is_uint "$1" && (( 10#$1 >= 100 && 10#$1 <= 999999999 )); }
+ctid_free()     { pvesh get /cluster/nextid --vmid "$1" >/dev/null 2>&1; }
+ctid_ok()       { valid_ctid "$1" && ctid_free "$1"; }
+valid_cores()   { is_uint "$1" && (( 10#$1 >= 1 && 10#$1 <= $(nproc) )); }
+valid_ram()     { is_uint "$1" && (( 10#$1 >= 128 )); }
+valid_disk()    { is_uint "$1" && (( 10#$1 >= 1 )); }
+valid_swap()    { is_uint "$1"; }
+valid_vlan()    { [[ -z "$1" ]] || { is_uint "$1" && (( 10#$1 >= 1 && 10#$1 <= 4094 )); }; }
+valid_storage() { [[ -n "$1" ]] && in_list "$1" "$(host_storages rootdir)"; }
+valid_tmpl_storage() { [[ -n "$1" ]] && in_list "$1" "$(host_storages vztmpl)"; }
+valid_bridge()  { [[ -n "$1" ]] && in_list "$1" "$(host_bridges)"; }
+valid_password() { (( ${#1} >= 5 )); }
+valid_password_opt() { [[ -z "$1" ]] || valid_password "$1"; }
+
+valid_hostname() {
+  local label='[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
+  (( ${#1} <= 253 )) && [[ "$1" =~ ^${label}(\.${label})*$ ]]
+}
+
+valid_ipv4() {
+  local o
+  local -a parts
+  [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
+  IFS=. read -ra parts <<<"$1"
+  for o in "${parts[@]}"; do
+    (( 10#$o <= 255 )) || return 1
+  done
+}
+
+valid_cidr4() {
+  [[ "$1" == */* ]] || return 1
+  local addr=${1%/*} prefix=${1#*/}
+  valid_ipv4 "$addr" && is_uint "$prefix" && (( 10#$prefix >= 1 && 10#$prefix <= 32 ))
+}
+
+valid_ip_setting() { [[ "$1" == dhcp ]] || valid_cidr4 "$1"; }
+
+valid_dns() {
+  local s
+  for s in $1; do
+    valid_ipv4 "$s" || [[ "$s" =~ ^[0-9A-Fa-f:]+$ && "$s" == *:* ]] || return 1
+  done
+}
+
+valid_ssh_key() {
+  [[ "$1" =~ ^(ssh-|ecdsa-|sk-) ]] && ssh-keygen -l -f /dev/stdin <<<"$1" >/dev/null 2>&1
+}
+valid_ssh_key_opt() { [[ -z "$1" ]] || valid_ssh_key "$1"; }
+
+# ---- menu layer (the only code that reads input) ----------------------------
+
+UI_TITLE="proxmox-recipes"
+
+ui_is_set() { [[ -n "${!1+x}" ]]; }
+
+ui_require_tty() {   # <variable that needs an answer>
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    die "No terminal for the menus. Preset $1 (see misc/build.func) or run from an interactive shell."
+  fi
+  command -v whiptail >/dev/null 2>&1 || die "whiptail is not installed."
+}
+
+ui_cancelled() {
+  if (( RCP_TTY )); then clear; fi
+  say_warn "Cancelled. Nothing was created."
+  exit 0
+}
+
+ui_error() { whiptail --title "$UI_TITLE" --msgbox "$1" 10 70; }
+
+ui_input() {   # <var> <prompt> <default> <validator> <error text>
+  local var=$1 prompt=$2 value=$3 check=$4 err=$5
+  if ui_is_set "$var"; then return 0; fi
+  ui_require_tty "$var"
+  while true; do
+    value=$(whiptail --title "$UI_TITLE" --inputbox "$prompt" 11 70 "$value" 3>&1 1>&2 2>&3) || ui_cancelled
+    if "$check" "$value"; then
+      printf -v "$var" '%s' "$value"
+      return 0
+    fi
+    ui_error "$err"
+  done
+}
+
+ui_menu() {   # <var> <prompt> <default tag> <tag> <description> [...]
+  local var=$1 prompt=$2 def=$3 value rows
+  shift 3
+  if ui_is_set "$var"; then return 0; fi
+  ui_require_tty "$var"
+  rows=$(( $# / 2 ))
+  (( rows > 10 )) && rows=10
+  value=$(whiptail --title "$UI_TITLE" --default-item "$def" \
+    --menu "$prompt" $(( rows + 9 )) 74 "$rows" "$@" 3>&1 1>&2 2>&3) || ui_cancelled
+  printf -v "$var" '%s' "$value"
+}
+
+ui_yesno() {   # <var> <prompt> <default yes|no>
+  local var=$1 prompt=$2 rc=0
+  local -a extra=()
+  if ui_is_set "$var"; then return 0; fi
+  ui_require_tty "$var"
+  [[ "$3" == no ]] && extra=(--defaultno)
+  whiptail --title "$UI_TITLE" "${extra[@]}" --yesno "$prompt" 20 74 || rc=$?
+  case $rc in
+    0) printf -v "$var" 'yes' ;;
+    1) printf -v "$var" 'no' ;;
+    *) ui_cancelled ;;
+  esac
+}
+
+ui_password() {   # <var> <prompt>
+  local var=$1 a b
+  if ui_is_set "$var"; then return 0; fi
+  ui_require_tty "$var"
+  while true; do
+    a=$(whiptail --title "$UI_TITLE" --passwordbox "$2" 10 70 3>&1 1>&2 2>&3) || ui_cancelled
+    b=$(whiptail --title "$UI_TITLE" --passwordbox "Type the password again:" 10 70 3>&1 1>&2 2>&3) || ui_cancelled
+    if [[ "$a" != "$b" ]]; then
+      ui_error "The passwords do not match."
+    elif ! valid_password "$a"; then
+      ui_error "Use at least 5 characters."
+    else
+      printf -v "$var" '%s' "$a"
+      return 0
+    fi
+  done
+}
+
+ui_ask_mode() {
+  ui_menu SETUP_MODE "How should the ${APP_NAME} container be set up?" default \
+    default "Use defaults: ${APP_DEFAULT_CORES} core, ${APP_DEFAULT_RAM_MB} MB RAM, ${APP_DEFAULT_DISK_GB} GB disk, DHCP" \
+    advanced "Choose every setting yourself"
+}
+
+ui_ask_advanced() {
+  local def_ctid item s
+  local -a items
+
+  def_ctid=$(default_ctid)
+  ui_input CT_ID "Container ID:" "$def_ctid" ctid_ok \
+    "The ID must be a number of 100 or more that no other container or VM uses."
+  ui_input CT_HOSTNAME "Hostname:" "$APP_DEFAULT_HOSTNAME" valid_hostname \
+    "Use letters, digits and hyphens (dots between labels), not starting or ending with a hyphen."
+  ui_input CT_CORES "CPU cores (1-$(nproc)):" "$APP_DEFAULT_CORES" valid_cores \
+    "Enter a whole number between 1 and $(nproc)."
+  ui_input CT_RAM_MB "Memory in MB:" "$APP_DEFAULT_RAM_MB" valid_ram \
+    "Enter a whole number of at least 128."
+  ui_input CT_DISK_GB "Root disk size in GB:" "$APP_DEFAULT_DISK_GB" valid_disk \
+    "Enter a whole number of at least 1."
+
+  if ! ui_is_set CT_STORAGE; then
+    items=()
+    while IFS= read -r s; do
+      [[ -n "$s" ]] && items+=("$s" "$(storage_free_gib "$s") GiB free")
+    done <<<"$(host_storages rootdir)"
+    (( ${#items[@]} > 0 )) || die "No active storage on this host can hold container disks ('rootdir' content)."
+    ui_menu CT_STORAGE "Storage for the container's root disk:" "$(default_storage)" "${items[@]}"
+  fi
+
+  if ! ui_is_set CT_BRIDGE; then
+    items=()
+    while IFS= read -r s; do
+      [[ -n "$s" ]] && items+=("$s" "network bridge")
+    done <<<"$(host_bridges)"
+    (( ${#items[@]} > 0 )) || die "No network bridge found on this host."
+    ui_menu CT_BRIDGE "Network bridge:" "$(default_bridge)" "${items[@]}"
+  fi
+
+  if ! ui_is_set CT_IP; then
+    item=""
+    ui_menu item "IPv4 address:" dhcp \
+      dhcp "Get an address from DHCP" \
+      static "Set a static address"
+    if [[ "$item" == dhcp ]]; then
+      CT_IP=dhcp
+    else
+      ui_input CT_IP "Static IPv4 address with prefix, e.g. 192.168.1.50/24:" "" valid_cidr4 \
+        "Enter an IPv4 address with a prefix length, e.g. 192.168.1.50/24."
+    fi
+  fi
+  if [[ "$CT_IP" != dhcp ]]; then
+    ui_input CT_GATEWAY "Gateway IPv4 address:" "" valid_ipv4 \
+      "Enter an IPv4 address, e.g. 192.168.1.1."
+  fi
+
+  ui_input CT_VLAN "VLAN tag (leave blank for none):" "" valid_vlan \
+    "Enter a VLAN tag from 1 to 4094, or leave it blank."
+  ui_input CT_DNS "DNS servers, space separated (leave blank to use the host's):" "" valid_dns \
+    "Enter IP addresses separated by spaces, or leave it blank."
+
+  if ! ui_is_set CT_PASSWORD && ! ui_is_set CT_SSH_KEY; then
+    item=""
+    ui_menu item "Root login:" password \
+      password "Set a root password" \
+      sshkey "Add an SSH public key" \
+      both "Password and SSH key" \
+      none "Neither (use 'pct enter' from the host)"
+    case $item in
+      password) CT_SSH_KEY="" ;;
+      sshkey)   CT_PASSWORD="" ;;
+      none)     CT_PASSWORD=""; CT_SSH_KEY="" ;;
+    esac
+  fi
+  ui_password CT_PASSWORD "Root password (at least 5 characters):"
+  ui_input CT_SSH_KEY "Paste the SSH public key for root:" "" valid_ssh_key \
+    "That is not a valid SSH public key (ssh-ed25519 AAAA..., ssh-rsa AAAA..., ...)."
+
+  ui_yesno CT_ONBOOT "Start the container when the host boots?" yes
+}
+
+ui_confirm() {
+  ui_yesno CONFIRM_CREATE "$(settings_text)
+
+Create this container?" yes
+  [[ "$CONFIRM_CREATE" == yes ]] || ui_cancelled
+}
+
+# Called from rcp_fail (core.func) when something goes wrong.
+ui_ask_destroy() {
+  if ui_is_set DESTROY_ON_FAILURE; then return 0; fi
+  if [[ -t 0 && -t 1 ]] && command -v whiptail >/dev/null 2>&1; then
+    if whiptail --title "$UI_TITLE" --yesno \
+      "Setting up container ${CT_ID} failed.\n\nDestroy the half-built container?" 10 70; then
+      DESTROY_ON_FAILURE=yes
+    else
+      DESTROY_ON_FAILURE=no
+    fi
+  else
+    DESTROY_ON_FAILURE=no
+  fi
+}
+
+# ---- settings ---------------------------------------------------------------
+
+fill_defaults() {
+  if ! ui_is_set CT_ID;        then CT_ID=$(default_ctid); fi
+  if ! ui_is_set CT_HOSTNAME;  then CT_HOSTNAME=$APP_DEFAULT_HOSTNAME; fi
+  if ! ui_is_set CT_CORES;     then CT_CORES=$APP_DEFAULT_CORES; fi
+  if ! ui_is_set CT_RAM_MB;    then CT_RAM_MB=$APP_DEFAULT_RAM_MB; fi
+  if ! ui_is_set CT_DISK_GB;   then CT_DISK_GB=$APP_DEFAULT_DISK_GB; fi
+  if ! ui_is_set CT_SWAP_MB;   then CT_SWAP_MB=512; fi
+  if ! ui_is_set CT_STORAGE;   then CT_STORAGE=$(default_storage); fi
+  if ! ui_is_set TMPL_STORAGE; then TMPL_STORAGE=$(default_tmpl_storage); fi
+  if ! ui_is_set CT_BRIDGE;    then CT_BRIDGE=$(default_bridge); fi
+  if ! ui_is_set CT_IP;        then CT_IP=dhcp; fi
+  if ! ui_is_set CT_GATEWAY;   then CT_GATEWAY=""; fi
+  if ! ui_is_set CT_VLAN;      then CT_VLAN=""; fi
+  if ! ui_is_set CT_DNS;       then CT_DNS=""; fi
+  if ! ui_is_set CT_PASSWORD;  then CT_PASSWORD=""; fi
+  if ! ui_is_set CT_SSH_KEY;   then CT_SSH_KEY=""; fi
+  if ! ui_is_set CT_ONBOOT;    then CT_ONBOOT=yes; fi
+}
+
+validate_settings() {
+  step_begin "Checking settings"
+  [[ -n "$CT_STORAGE" ]] || die "No active storage on this host can hold container disks ('rootdir' content). Enable one, or set CT_STORAGE."
+  valid_mode "$SETUP_MODE"       || die "SETUP_MODE must be 'default' or 'advanced' (got '$SETUP_MODE')."
+  valid_ctid "$CT_ID"            || die "CT_ID '$CT_ID' is not a valid container ID."
+  ctid_free "$CT_ID"             || die "ID $CT_ID is already used by another container or VM."
+  valid_hostname "$CT_HOSTNAME"  || die "CT_HOSTNAME '$CT_HOSTNAME' is not a valid hostname."
+  valid_cores "$CT_CORES"        || die "CT_CORES must be between 1 and $(nproc)."
+  valid_ram "$CT_RAM_MB"         || die "CT_RAM_MB must be at least 128."
+  valid_disk "$CT_DISK_GB"       || die "CT_DISK_GB must be at least 1."
+  valid_swap "$CT_SWAP_MB"       || die "CT_SWAP_MB must be a whole number."
+  valid_storage "$CT_STORAGE"    || die "Storage '$CT_STORAGE' is not an active storage that can hold container disks. Usable: $(host_storages rootdir | paste -sd' ' -)"
+  valid_tmpl_storage "$TMPL_STORAGE" || die "Storage '$TMPL_STORAGE' is not an active storage that can hold templates."
+  valid_bridge "$CT_BRIDGE"      || die "Bridge '$CT_BRIDGE' does not exist on this host."
+  valid_ip_setting "$CT_IP"      || die "CT_IP must be 'dhcp' or an address like 192.168.1.50/24 (got '$CT_IP')."
+  if [[ "$CT_IP" != dhcp ]]; then
+    valid_ipv4 "$CT_GATEWAY"     || die "A static CT_IP needs a valid CT_GATEWAY."
+  fi
+  valid_vlan "$CT_VLAN"          || die "CT_VLAN must be 1-4094 or empty."
+  valid_dns "$CT_DNS"            || die "CT_DNS must be IP addresses separated by spaces."
+  valid_password_opt "$CT_PASSWORD" || die "CT_PASSWORD must be at least 5 characters."
+  valid_ssh_key_opt "$CT_SSH_KEY"   || die "CT_SSH_KEY is not a valid SSH public key."
+  valid_yesno "$CT_ONBOOT"       || die "CT_ONBOOT must be 'yes' or 'no'."
+  step_end
+}
+
+settings_text() {
+  local net login=()
+  if [[ "$CT_IP" == dhcp ]]; then net="DHCP"; else net="$CT_IP via $CT_GATEWAY"; fi
+  [[ -n "$CT_VLAN" ]] && net+=", VLAN $CT_VLAN"
+  [[ -n "$CT_PASSWORD" ]] && login+=("password")
+  [[ -n "$CT_SSH_KEY" ]] && login+=("SSH key")
+  (( ${#login[@]} )) || login=("none (pct enter)")
+  printf '%s\n' \
+    "App:       ${APP_NAME} (Debian ${APP_DEBIAN_RELEASE}, unprivileged)" \
+    "CT ID:     ${CT_ID}" \
+    "Hostname:  ${CT_HOSTNAME}" \
+    "Resources: ${CT_CORES} core(s), ${CT_RAM_MB} MB RAM, ${CT_DISK_GB} GB disk" \
+    "Storage:   ${CT_STORAGE} (template on ${TMPL_STORAGE})" \
+    "Network:   ${CT_BRIDGE}, ${net}" \
+    "DNS:       ${CT_DNS:-same as host}" \
+    "Root:      ${login[*]}" \
+    "On boot:   ${CT_ONBOOT}"
+}
+
+collect_settings() {
+  UI_TITLE="proxmox-recipes: ${APP_NAME}"
+  ui_ask_mode
+  valid_mode "$SETUP_MODE" || die "SETUP_MODE must be 'default' or 'advanced' (got '$SETUP_MODE')."
+  if [[ "$SETUP_MODE" == advanced ]]; then
+    ui_ask_advanced
+  fi
+  fill_defaults
+  validate_settings
+  ui_confirm
+  log_line "Settings:"
+  settings_text | sed 's/^/    /' >>"$RCP_LOG"
+}
+
+# ---- template ---------------------------------------------------------------
+
+template_pattern() { printf '^debian-%s-standard_.*_amd64\\.tar\\.' "$APP_DEBIAN_RELEASE"; }
+
+template_cached() {   # -> volid of newest matching template already on TMPL_STORAGE
+  pveam list "$TMPL_STORAGE" 2>/dev/null |
+    awk -v re="$(template_pattern)" 'NR > 1 { n = $1; sub(/^[^\/]*\//, "", n); if (n ~ re) print $1 }' |
+    sort -V | tail -n 1
+}
+
+template_available() {   # -> file name of newest matching template upstream
+  pveam available --section system 2>/dev/null |
+    awk -v re="$(template_pattern)" '$2 ~ re { print $2 }' |
+    sort -V | tail -n 1
+}
+
+prepare_template() {
+  local name
+  TEMPLATE_VOLID=$(template_cached)
+  if [[ -n "$TEMPLATE_VOLID" ]]; then
+    say_ok "Template ${TEMPLATE_VOLID} already downloaded"
+    return 0
+  fi
+  run_step "Updating template list" pveam update
+  name=$(template_available)
+  [[ -n "$name" ]] || die "No Debian ${APP_DEBIAN_RELEASE} template found in 'pveam available'."
+  run_step "Downloading ${name}" pveam download "$TMPL_STORAGE" "$name"
+  TEMPLATE_VOLID="${TMPL_STORAGE}:vztmpl/${name}"
+}
+
+# ---- container --------------------------------------------------------------
+
+CT_CREATED=0
+
+net0_spec() {
+  local n="name=eth0,bridge=${CT_BRIDGE}"
+  if [[ "$CT_IP" == dhcp ]]; then
+    n+=",ip=dhcp"
+  else
+    n+=",ip=${CT_IP},gw=${CT_GATEWAY}"
+  fi
+  [[ -n "$CT_VLAN" ]] && n+=",tag=${CT_VLAN}"
+  printf '%s' "$n"
+}
+
+create_container() {
+  local keyfile=""
+  local -a args=(
+    --hostname "$CT_HOSTNAME"
+    --ostype debian
+    --unprivileged 1
+    --features nesting=1
+    --cores "$CT_CORES"
+    --memory "$CT_RAM_MB"
+    --swap "$CT_SWAP_MB"
+    --rootfs "${CT_STORAGE}:${CT_DISK_GB}"
+    --net0 "$(net0_spec)"
+    --onboot "$([[ "$CT_ONBOOT" == yes ]] && echo 1 || echo 0)"
+    --timezone host
+    --tags proxmox-recipes
+    --description "Created by proxmox-recipes (${APP_SLUG})"
+  )
+  [[ -n "$CT_DNS" ]] && args+=(--nameserver "$CT_DNS")
+  if [[ -n "$CT_SSH_KEY" ]]; then
+    keyfile=$(mktemp)
+    printf '%s\n' "$CT_SSH_KEY" >"$keyfile"
+    args+=(--ssh-public-keys "$keyfile")
+  fi
+
+  # Check again right before creating: never claim an ID someone else took.
+  ctid_free "$CT_ID" || die "ID $CT_ID was taken while settings were being collected."
+  run_step "Creating container ${CT_ID}" pct create "$CT_ID" "$TEMPLATE_VOLID" "${args[@]}"
+  CT_CREATED=1
+  [[ -n "$keyfile" ]] && rm -f -- "$keyfile"
+  return 0
+}
+
+ct_ipv4() {
+  pct exec "$CT_ID" -- ip -4 -o addr show dev eth0 scope global 2>/dev/null |
+    awk '{ print $4; exit }'
+}
+
+wait_for_network() {
+  local i ip=""
+  for (( i = 0; i < 60; i++ )); do
+    ip=$(ct_ipv4) || true
+    [[ -n "$ip" ]] && break
+    sleep 1
+  done
+  if [[ -z "$ip" ]]; then
+    echo "eth0 got no IPv4 address within 60 seconds"
+    return 1
+  fi
+  echo "eth0: $ip"
+  for (( i = 0; i < 30; i++ )); do
+    if pct exec "$CT_ID" -- getent hosts deb.debian.org; then
+      pct exec "$CT_ID" -- timeout 10 bash -c 'exec 3<>/dev/tcp/deb.debian.org/80'
+      echo "deb.debian.org reachable"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "DNS lookup of deb.debian.org failed for 30 seconds"
+  return 1
+}
+
+set_root_password() {
+  printf 'root:%s\n' "$CT_PASSWORD" | pct exec "$CT_ID" -- chpasswd
+}
+
+start_container() {
+  run_step "Starting container ${CT_ID}" pct start "$CT_ID"
+  run_step "Waiting for network" wait_for_network
+  if [[ -n "$CT_PASSWORD" ]]; then
+    run_step "Setting root password" set_root_password
+  fi
+}
+
+run_app_install() {
+  local tmp
+  [[ -n "${APP_INSTALL_SCRIPT:-}" ]] || return 0
+  tmp=$(mktemp)
+  recipe_fetch "$APP_INSTALL_SCRIPT" >"$tmp" || die "Could not load ${APP_INSTALL_SCRIPT}."
+  run_step "Copying install script" pct push "$CT_ID" "$tmp" /root/recipe-install.sh --perms 0700
+  rm -f -- "$tmp"
+  run_step "Installing ${APP_NAME}" pct exec "$CT_ID" -- bash /root/recipe-install.sh
+}
+
+show_summary() {
+  local ip
+  ip=$(ct_ipv4) || true
+  say_head "${APP_NAME} container ${CT_ID} is ready"
+  settings_text | sed 's/^/  /'
+  say "  IPv4:      ${ip:-unknown}"
+  say "  Console:   pct enter ${CT_ID}"
+  say "  Log:       ${RCP_LOG}"
+}
+
+# Called by rcp_fail (core.func) after a failure has been reported.
+rcp_on_failure() {
+  if (( CT_CREATED != 1 )); then
+    say "   No container was created."
+    return 0
+  fi
+  ui_ask_destroy
+  if [[ "$DESTROY_ON_FAILURE" == yes ]]; then
+    say "   Destroying container ${CT_ID}..."
+    pct stop "$CT_ID" >>"$RCP_LOG" 2>&1
+    if pct destroy "$CT_ID" --purge >>"$RCP_LOG" 2>&1; then
+      say_ok "Container ${CT_ID} destroyed"
+    else
+      say_err "Could not destroy container ${CT_ID}; see $RCP_LOG"
+    fi
+  else
+    say "   Container ${CT_ID} was left in place. Remove it with: pct destroy ${CT_ID} --purge"
+  fi
+}
+
+# ---- entry point ------------------------------------------------------------
+
+recipe_main() {
+  : "${APP_NAME:?}" "${APP_SLUG:?}" "${APP_DEBIAN_RELEASE:?}" "${APP_DEFAULT_HOSTNAME:?}"
+  : "${APP_DEFAULT_CORES:?}" "${APP_DEFAULT_RAM_MB:?}" "${APP_DEFAULT_DISK_GB:?}"
+  rcp_install_traps
+  log_start "$APP_SLUG"
+  say_head "proxmox-recipes: ${APP_NAME}"
+  preflight_checks
+  collect_settings
+  log_bind_ctid "$APP_SLUG" "$CT_ID"
+  prepare_template
+  create_container
+  start_container
+  run_app_install
+  show_summary
+}
