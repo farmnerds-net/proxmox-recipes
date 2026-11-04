@@ -1,0 +1,28 @@
+name: ShellCheck
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: ShellCheck (*.sh)
+        run: |
+          find . -type f -name '*.sh' -not -path './.git/*' -print0 \
+            | xargs -0 -r shellcheck
+
+      # .func files have no .sh extension and may lack a shebang,
+      # so tell ShellCheck to treat them as bash.
+      - name: ShellCheck (*.func, treated as bash)
+        run: |
+          find . -type f -name '*.func' -not -path './.git/*' -print0 \
+            | xargs -0 -r shellcheck --shell=bash

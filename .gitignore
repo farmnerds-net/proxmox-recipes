@@ -1,0 +1,11 @@
+# Secrets / local config
+.env
+
+# Logs
+*.log
+
+# OS cruft
+.DS_Store
+
+# Local test scratch folder
+/test/
