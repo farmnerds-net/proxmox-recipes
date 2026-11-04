@@ -2,6 +2,14 @@
 
 Recipes that install self-hosted apps into Proxmox LXC containers.
 
+## Scope
+
+Debian LXC containers only. Apps are installed natively using a method the
+app's upstream officially documents: their apt repo or .deb, official release
+binaries, documented build-from-source steps, or their own installer. No
+Docker, no Podman, no undocumented workarounds. If an app doesn't have an
+official native install path, it doesn't belong in this repo.
+
 ## Usage
 
 Run this on the Proxmox host shell, replacing `<app>` with the recipe you want:
@@ -13,6 +21,17 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/farmnerds-net/proxmox-re
 > **Warning:** Recipes run as **root on your Proxmox host**. A recipe can do
 > anything root can do, so read it before you run it. Never pipe a script you
 > haven't looked at into your hypervisor.
+
+### Updating an app
+
+Inside any container built by a recipe:
+
+```bash
+recipe update
+```
+
+That upgrades the OS packages and the app. `recipe info` shows the app's
+version, IP, ports and where its config lives.
 
 ## Layout
 
@@ -28,9 +47,9 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/farmnerds-net/proxmox-re
 
 ## Credits
 
-Inspired by and partly adapted from
-[community-scripts/ProxmoxVE](https://github.com/community-scripts/ProxmoxVE)
-(MIT). Adapted files keep their original copyright notice.
+Inspired by
+[community-scripts/ProxmoxVE](https://github.com/community-scripts/ProxmoxVE).
+The engine here is written from scratch.
 
 ## License
 
