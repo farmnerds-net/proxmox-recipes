@@ -710,7 +710,7 @@ notes_text() {
 
   printf '<div align="center">\n\n<h1>%s</h1>\n\n' "$(md_cell "$APP_NAME")"
   if [[ -n "$APP_WEB_URL" ]]; then
-    printf '<h3><a href="%s" target="_blank">Open the web UI: %s</a></h3>\n\n' "$APP_WEB_URL" "$APP_WEB_URL"
+    printf '<h5><a href="%s" target="_blank">Open the web UI: %s</a></h5>\n\n' "$APP_WEB_URL" "$APP_WEB_URL"
   fi
   printf '</div>\n\n| | |\n| --- | --- |\n'
   notes_row "Container" "${CT_ID} (${CT_HOSTNAME})"
