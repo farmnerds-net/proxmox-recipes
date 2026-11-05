@@ -92,6 +92,12 @@ branch.
     command
 - `docs/apps/` — one page per app.
 
+## Support
+
+If these recipes save you time, you can
+[support farmnerds on Ko-fi](https://ko-fi.com/farmnerds). Every container
+built by a recipe also has this link at the bottom of its Notes.
+
 ## Credits
 
 Inspired by

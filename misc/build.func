@@ -662,6 +662,7 @@ run_app_install() {
 # uses the UI's own font.
 
 APP_WEB_URL=""
+RECIPES_SUPPORT_URL="https://ko-fi.com/farmnerds"
 
 ct_ip_only() {
   local ip
@@ -727,6 +728,8 @@ notes_text() {
   notes_row "Installed" "$(date '+%F') by proxmox-recipes"
   printf '| **Docs** | [%s](https://github.com/farmnerds-net/proxmox-recipes/blob/%s/docs/apps/%s.md) |\n' \
     "$(md_cell "$APP_NAME")" "$RECIPES_REF" "$APP_SLUG"
+  printf '\n<div align="center">\n\n<small>&#9749; Enjoying proxmox-recipes? <a href="%s" target="_blank">Support farmnerds on Ko-fi</a></small>\n\n</div>\n' \
+    "$RECIPES_SUPPORT_URL"
 }
 
 write_notes() {
