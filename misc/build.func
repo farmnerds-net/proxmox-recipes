@@ -200,6 +200,7 @@ ui_require_tty() {   # <variable that needs an answer>
 
 ui_cancelled() {
   if (( RCP_TTY )); then clear; fi
+  log_discard_pending
   say_warn "Cancelled. Nothing was created."
   exit 0
 }
@@ -529,7 +530,7 @@ create_container() {
   )
   [[ -n "$CT_DNS" ]] && args+=(--nameserver "$CT_DNS")
   if [[ -n "$CT_SSH_KEY" ]]; then
-    keyfile=$(mktemp)
+    rcp_mktemp keyfile
     printf '%s\n' "$CT_SSH_KEY" >"$keyfile"
     args+=(--ssh-public-keys "$keyfile")
   fi
@@ -538,7 +539,6 @@ create_container() {
   ctid_free "$CT_ID" || die "ID $CT_ID was taken while settings were being collected."
   run_step "Creating container ${CT_ID}" pct create "$CT_ID" "$TEMPLATE_VOLID" "${args[@]}"
   CT_CREATED=1
-  [[ -n "$keyfile" ]] && rm -f -- "$keyfile"
   return 0
 }
 
@@ -692,6 +692,11 @@ recipe_main() {
   if ! declare -p APP_ENV_VARS >/dev/null 2>&1; then APP_ENV_VARS=(); fi
   rcp_install_traps
   log_start "$APP_SLUG"
+  if [[ -n "${RECIPES_SRC:-}" ]]; then
+    log_line "Source: local checkout ${RECIPES_SRC}"
+  else
+    log_line "Source: ${RECIPES_RAW_BASE}"
+  fi
   say_head "proxmox-recipes: ${APP_NAME}"
   preflight_checks
   check_interactive_install
