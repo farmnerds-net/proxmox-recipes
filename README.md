@@ -23,6 +23,7 @@ official native install path, it doesn't belong in this repo.
 | [PowerDNS](docs/apps/powerdns.md) | `powerdns` | Recursor + Authoritative Server with a local `home.arpa` zone and HTTP API; no questions |
 | [Technitium DNS Server](docs/apps/technitium.md) | `technitium` | Recursive + authoritative DNS with ad blocking, all from a web console on port 5380; no questions |
 | [cloudflared](docs/apps/cloudflared.md) | `cloudflared` | Cloudflare Tunnel connector; paste your tunnel token inside the container afterwards |
+| [Documenso](docs/apps/documenso.md) | `documenso` | Document signing, built from source (slow install). Set up SMTP before signing up |
 
 ## Usage
 
