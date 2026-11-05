@@ -662,7 +662,8 @@ run_app_install() {
 # uses the UI's own font.
 
 APP_WEB_URL=""
-RECIPES_SUPPORT_URL="https://ko-fi.com/farmnerds"
+RECIPES_SUPPORT_URL="https://ko-fi.com/X8X01OKYSJ"
+RECIPES_SUPPORT_BUTTON="https://storage.ko-fi.com/cdn/kofi6.png?v=6"
 
 ct_ip_only() {
   local ip
@@ -709,6 +710,10 @@ notes_text() {
   if [[ -n "$APP_WEB_URL" ]]; then
     printf '<h5><a href="%s" target="_blank">Open the web UI: %s</a></h5>\n\n' "$APP_WEB_URL" "$APP_WEB_URL"
   fi
+  # The notes sanitizer drops style attributes, so size the button with height.
+  printf 'Do you appreciate the recipes?\n\n'
+  printf '<a href="%s" target="_blank"><img height="36" src="%s" alt="Buy Me a Coffee at ko-fi.com"></a>\n\n' \
+    "$RECIPES_SUPPORT_URL" "$RECIPES_SUPPORT_BUTTON"
   printf '</div>\n\n| | |\n| --- | --- |\n'
   notes_row "Container" "${CT_ID} (${CT_HOSTNAME})"
   if [[ "$CT_IP" == dhcp ]]; then
@@ -722,8 +727,6 @@ notes_text() {
   notes_row "Installed" "$(date '+%F') by proxmox-recipes"
   printf '| **Docs** | [%s](https://github.com/farmnerds-net/proxmox-recipes/blob/%s/docs/apps/%s.md) |\n' \
     "$(md_cell "$APP_NAME")" "$RECIPES_REF" "$APP_SLUG"
-  printf '\n<div align="center">\n\n<small>&#9749; Enjoying proxmox-recipes? <a href="%s" target="_blank">Support farmnerds on Ko-fi</a></small>\n\n</div>\n' \
-    "$RECIPES_SUPPORT_URL"
 }
 
 write_notes() {
