@@ -22,6 +22,7 @@ official native install path, it doesn't belong in this repo.
 | [CoreDNS](docs/apps/coredns.md) | `coredns` | Plugin-based DNS server; no questions, no web UI, settings in the Corefile |
 | [PowerDNS](docs/apps/powerdns.md) | `powerdns` | Recursor + Authoritative Server with a local `home.arpa` zone and HTTP API; no questions |
 | [Technitium DNS Server](docs/apps/technitium.md) | `technitium` | Recursive + authoritative DNS with ad blocking, all from a web console on port 5380; no questions |
+| [cloudflared](docs/apps/cloudflared.md) | `cloudflared` | Cloudflare Tunnel connector; paste your tunnel token inside the container afterwards |
 
 ## Usage
 
