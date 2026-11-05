@@ -33,7 +33,6 @@ if [[ -f /etc/unbound/unbound.conf.d/pi-hole.conf ]]; then
 fi
 
 UNBOUND_CONF="/etc/unbound/unbound.conf.d/pi-hole.conf"
-ROOT_SERVER="198.41.0.4"   # a.root-servers.net, as used by the Unbound guide
 
 app_install() {
   apt_quiet install --no-install-recommends wget
@@ -95,39 +94,6 @@ app_version() {
 }
 
 # ---- Unbound (https://docs.pi-hole.net/guides/dns/unbound/) -----------------
-
-dig_flags() {    # <dig args...> -> the header flags, e.g. "qr aa"
-  dig "$@" | sed -n 's/^;; flags: \([^;]*\);.*/\1/p'
-}
-
-dig_status() {   # <dig args...> -> NOERROR, SERVFAIL, ...
-  dig "$@" | sed -n 's/.*status: \([A-Z]*\),.*/\1/p'
-}
-
-has_flag() {     # <flags> <flag>
-  [[ " $1 " == *" $2 "* ]]
-}
-
-# "Recommended: Test access to root servers". The guide says not to install
-# Unbound if any of these fail.
-check_root_servers() {
-  local flags
-  step "Checking direct access to the DNS root servers"
-
-  flags=$(dig_flags @"$ROOT_SERVER" . NS +norec +time=3) || true
-  if ! has_flag "$flags" aa || has_flag "$flags" ra; then
-    fail "UDP DNS to the root servers is blocked or intercepted (flags: '${flags}'). Unbound will not work on this network; see https://docs.pi-hole.net/guides/dns/unbound/"
-  fi
-
-  flags=$(dig_flags @"$ROOT_SERVER" . NS +norec +tcp +time=3) || true
-  if ! has_flag "$flags" aa || has_flag "$flags" ra; then
-    fail "TCP DNS to the root servers is blocked or intercepted (flags: '${flags}'). Unbound will not work on this network; see https://docs.pi-hole.net/guides/dns/unbound/"
-  fi
-
-  if ! dig @"$ROOT_SERVER" version.bind CH TXT +time=3 | grep -q '"ATLAS"'; then
-    fail "DNS to the root servers is being proxied (CHAOS check failed). Unbound will not work reliably on this network; see https://docs.pi-hole.net/guides/dns/unbound/"
-  fi
-}
 
 write_unbound_conf() {
   # The guide's recommended /etc/unbound/unbound.conf.d/pi-hole.conf.
