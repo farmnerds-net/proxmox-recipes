@@ -7,6 +7,9 @@
 #
 # From a local checkout (loads the engine from disk instead of GitHub):
 #   RECIPES_SRC=/path/to/proxmox-recipes bash ct/debian.sh
+#
+# From another branch or tag on GitHub (default main):
+#   RECIPES_REF=<branch> bash ct/debian.sh
 
 set -Eeuo pipefail
 
@@ -19,7 +22,7 @@ set -Eeuo pipefail
   APP_DEFAULT_CORES=1
   APP_DEFAULT_RAM_MB=512
   APP_DEFAULT_DISK_GB=4
-  APP_INSTALL_SCRIPT=""   # no app: nothing to run inside the container
+  APP_INSTALL_SCRIPT="install/debian.sh"
 }
 
 if [[ -n "${RECIPES_SRC:-}" ]]; then
@@ -27,7 +30,7 @@ if [[ -n "${RECIPES_SRC:-}" ]]; then
   source "${RECIPES_SRC%/}/misc/build.func"
 else
   engine=$(curl -fsSL --retry 2 --max-time 30 \
-    "https://raw.githubusercontent.com/farmnerds-net/proxmox-recipes/main/misc/build.func") || {
+    "https://raw.githubusercontent.com/farmnerds-net/proxmox-recipes/${RECIPES_REF:-main}/misc/build.func") || {
     printf 'proxmox-recipes: could not download misc/build.func\n' >&2
     exit 1
   }

@@ -6,12 +6,17 @@
 # calls recipe_main. The flow is:
 #
 #   preflight -> settings (menus) -> validate -> template -> pct create
-#   -> start -> wait for network -> install script (if any) -> summary
+#   -> start -> wait for network -> container-side install -> summary
 #
 # Recipe metadata (set by ct/<app>.sh):
 #   APP_NAME APP_SLUG APP_DEBIAN_RELEASE APP_DEFAULT_HOSTNAME
 #   APP_DEFAULT_CORES APP_DEFAULT_RAM_MB APP_DEFAULT_DISK_GB
-#   APP_INSTALL_SCRIPT   repo-relative path, or empty for no app
+#   APP_INSTALL_SCRIPT   repo-relative path of install/<app>.sh
+#
+# Source of the engine and app scripts:
+#   RECIPES_SRC   local checkout to load from (host side only)
+#   RECIPES_REF   git branch/tag on GitHub (default main). Also written into
+#                 the container, so 'recipe update' follows the same ref.
 #
 # Settings. Each one is a plain variable; any that is already set (even
 # to an empty string, for the optional ones) skips its menu, so a caller
@@ -37,7 +42,12 @@
 
 set -Eeuo pipefail
 
-RECIPES_RAW_BASE="https://raw.githubusercontent.com/farmnerds-net/proxmox-recipes/main"
+RECIPES_REF=${RECIPES_REF:-main}
+if [[ ! "$RECIPES_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+  printf 'proxmox-recipes: RECIPES_REF %q is not a valid branch or tag name\n' "$RECIPES_REF" >&2
+  exit 1
+fi
+RECIPES_RAW_BASE="https://raw.githubusercontent.com/farmnerds-net/proxmox-recipes/${RECIPES_REF}"
 
 # ---- loading repo files -----------------------------------------------------
 
@@ -543,14 +553,38 @@ start_container() {
   fi
 }
 
-run_app_install() {
-  local tmp
-  [[ -n "${APP_INSTALL_SCRIPT:-}" ]] || return 0
+# Push the container-side engine and the app script into the container,
+# then run install_main there (see misc/install.func).
+push_repo_file() {   # <repo-relative path> <path in container>
+  local tmp rc=0
   tmp=$(mktemp)
-  recipe_fetch "$APP_INSTALL_SCRIPT" >"$tmp" || die "Could not load ${APP_INSTALL_SCRIPT}."
-  run_step "Copying install script" pct push "$CT_ID" "$tmp" /root/recipe-install.sh --perms 0700
+  recipe_fetch "$1" >"$tmp" || rc=$?
+  if (( rc == 0 )); then
+    pct push "$CT_ID" "$tmp" "$2" --perms 0644 || rc=$?
+  else
+    echo "could not load $1"
+  fi
   rm -f -- "$tmp"
-  run_step "Installing ${APP_NAME}" pct exec "$CT_ID" -- bash /root/recipe-install.sh
+  return "$rc"
+}
+
+push_install_files() {
+  pct exec "$CT_ID" -- mkdir -p /usr/local/lib/recipe
+  push_repo_file misc/install.func /usr/local/lib/recipe/install.func
+  push_repo_file "$APP_INSTALL_SCRIPT" /usr/local/lib/recipe/app.sh
+}
+
+container_install() {
+  pct exec "$CT_ID" -- env \
+    RECIPE_APP_NAME="$APP_NAME" \
+    RECIPE_APP_SLUG="$APP_SLUG" \
+    RECIPES_RAW_BASE="$RECIPES_RAW_BASE" \
+    bash -c 'source /usr/local/lib/recipe/install.func && install_main'
+}
+
+run_app_install() {
+  run_step "Copying install scripts" push_install_files
+  run_step "Installing ${APP_NAME}" container_install
 }
 
 show_summary() {
@@ -588,6 +622,7 @@ rcp_on_failure() {
 recipe_main() {
   : "${APP_NAME:?}" "${APP_SLUG:?}" "${APP_DEBIAN_RELEASE:?}" "${APP_DEFAULT_HOSTNAME:?}"
   : "${APP_DEFAULT_CORES:?}" "${APP_DEFAULT_RAM_MB:?}" "${APP_DEFAULT_DISK_GB:?}"
+  : "${APP_INSTALL_SCRIPT:?}"
   rcp_install_traps
   log_start "$APP_SLUG"
   say_head "proxmox-recipes: ${APP_NAME}"
