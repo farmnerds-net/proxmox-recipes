@@ -240,7 +240,7 @@ cmd_update_app() {
   app_update
   install_recipe_command
   info_write "$installed" "$(date '+%F %T')"
-  msg "Done: ${APP_NAME} $(app_version_text) is up to date."
+  msg "Done: ${APP_NAME} is up to date ($(app_version_text))."
 }
 
 recipe_cli() {
