@@ -703,12 +703,8 @@ notes_row() {   # <label> <value>
 }
 
 notes_text() {
-  local ip ports="" config=""
+  local ip
   ip=$(ct_ip_only)
-  # shellcheck disable=SC2016  # expanded inside the container
-  { IFS= read -r ports; IFS= read -r config; } < <(pct exec "$CT_ID" -- bash -c \
-    'source /etc/recipe/info && printf "%s\n%s\n" "$APP_PORTS" "$APP_CONFIG"' 2>/dev/null) || true
-
   printf '<div align="center">\n\n<h1>%s</h1>\n\n' "$(md_cell "$APP_NAME")"
   if [[ -n "$APP_WEB_URL" ]]; then
     printf '<h5><a href="%s" target="_blank">Open the web UI: %s</a></h5>\n\n' "$APP_WEB_URL" "$APP_WEB_URL"
@@ -720,8 +716,6 @@ notes_text() {
   else
     notes_row "IP address" "${ip:-unknown} (static)"
   fi
-  [[ -n "$ports" ]] && notes_row "Ports" "$ports"
-  [[ -n "$config" ]] && notes_row "Config" "$config"
   app_hook app_notes_rows
   notes_row "Update" "\`pct enter ${CT_ID}\` then \`recipe update\`"
   notes_row "Details" "\`pct enter ${CT_ID}\` then \`recipe info\`"

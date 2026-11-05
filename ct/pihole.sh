@@ -57,13 +57,7 @@ app_summary_text() {
 }
 
 app_notes_rows() {
-  if [[ "$PIHOLE_UNBOUND" == yes ]]; then
-    notes_row "Unbound" "yes: Pi-hole resolves through Unbound on 127.0.0.1#5335"
-  else
-    notes_row "Unbound" "no"
-  fi
   notes_row "Web password" "shown at the end of the install; to change it: \`pct enter ${CT_ID}\` then \`pihole setpassword\`"
-  notes_row "Use it" "set $(ct_ip_only) as the DNS server in your router's DHCP settings"
 }
 
 if [[ -n "${RECIPES_SRC:-}" ]]; then
