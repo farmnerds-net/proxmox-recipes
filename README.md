@@ -17,6 +17,7 @@ official native install path, it doesn't belong in this repo.
 | [Debian](docs/apps/debian.md) | `debian` | Plain Debian 12, no app |
 | [Pi-hole](docs/apps/pihole.md) | `pihole` | Optional Unbound. Pi-hole's installer asks its own questions |
 | [AdGuard Home](docs/apps/adguardhome.md) | `adguardhome` | No questions; finish setup in its web wizard on port 3000 |
+| [Blocky](docs/apps/blocky.md) | `blocky` | No questions and no web UI; settings in one YAML file |
 
 ## Usage
 
