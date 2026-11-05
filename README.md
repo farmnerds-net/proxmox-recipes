@@ -34,6 +34,13 @@ recipe's defaults, **Advanced** lets you choose the container ID, hostname,
 CPU, memory, disk, storage, bridge, DHCP or static IP, VLAN, DNS, root
 password or SSH key, and start on boot. Containers are always unprivileged.
 
+When a recipe finishes, the container's **Notes** (its Summary page in the
+Proxmox UI) show the app name, a clickable link to the web UI built from the
+app's real IP and port, and the details you would otherwise look up: ports,
+config files, how to update, and a link to the app's doc. The notes are
+written once, at install; if you later change the app's port or IP, edit
+them by hand.
+
 ### Inside the container: the `recipe` command
 
 ```bash

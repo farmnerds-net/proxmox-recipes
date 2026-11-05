@@ -58,6 +58,9 @@ To answer the question in advance, set `PIHOLE_UNBOUND=yes` or
 
 ## After install
 
+The container's **Notes** in the Proxmox UI have a direct link to the web
+UI and everything below.
+
 - **Web UI:** `http://<container-ip>/admin`
 - **Password:** shown on the installer's last screen. To change it:
   `pct exec <id> -- pihole setpassword`

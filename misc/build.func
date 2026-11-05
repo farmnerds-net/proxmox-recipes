@@ -23,6 +23,8 @@
 #   app_validate_options die if an app option is invalid
 #   app_settings_text    extra lines for the settings/confirm screen
 #   app_summary_text     extra lines for the final summary
+#   app_notes_rows       extra rows for the container's notes table
+#                        (print them with notes_row)
 #
 # Source of the engine and app scripts:
 #   RECIPES_SRC   local checkout to load from (host side only)
@@ -652,6 +654,85 @@ run_app_install() {
   run_step "Finishing setup" container_phase install_finish
 }
 
+# ---- container notes --------------------------------------------------------
+#
+# The Notes panel in the Proxmox UI shows the container's description,
+# rendered as Markdown with a sanitized subset of HTML: div align, h1-h6,
+# links and tables are allowed; style attributes are not, so the title
+# uses the UI's own font.
+
+APP_WEB_URL=""
+
+ct_ip_only() {
+  local ip
+  ip=$(ct_ipv4) || true
+  printf '%s' "${ip%%/*}"
+}
+
+# Sets APP_WEB_URL from the app's live config (app_web in install/<app>.sh),
+# so the link follows the port the app really uses.
+find_web_url() {
+  local ip scheme="" port="" path="" host
+  ip=$(ct_ip_only)
+  [[ -n "$ip" ]] || return 0
+  read -r scheme port path < <(pct exec "$CT_ID" -- bash -c \
+    'source /usr/local/lib/recipe/install.func && load_app && app_web_text' 2>/dev/null) || true
+  [[ "$scheme" == http || "$scheme" == https ]] || return 0
+  is_uint "$port" || return 0
+  [[ "$path" == /* ]] || path=/
+  host=$ip
+  if [[ ! ( "$scheme" == http && "$port" == 80 ) && ! ( "$scheme" == https && "$port" == 443 ) ]]; then
+    host+=":${port}"
+  fi
+  APP_WEB_URL="${scheme}://${host}${path}"
+}
+
+md_cell() {   # <text> -> safe inside a Markdown table cell / HTML
+  local s=$1
+  # Replacements are quoted: in bash 5.2+ a bare & means "the match".
+  s=${s//'&'/'&amp;'}
+  s=${s//'<'/'&lt;'}
+  s=${s//'>'/'&gt;'}
+  s=${s//'|'/'\|'}
+  printf '%s' "$s"
+}
+
+notes_row() {   # <label> <value>
+  printf '| **%s** | %s |\n' "$1" "$(md_cell "$2")"
+}
+
+notes_text() {
+  local ip ports="" config=""
+  ip=$(ct_ip_only)
+  # shellcheck disable=SC2016  # expanded inside the container
+  { IFS= read -r ports; IFS= read -r config; } < <(pct exec "$CT_ID" -- bash -c \
+    'source /etc/recipe/info && printf "%s\n%s\n" "$APP_PORTS" "$APP_CONFIG"' 2>/dev/null) || true
+
+  printf '<div align="center">\n\n<h1>%s</h1>\n\n' "$(md_cell "$APP_NAME")"
+  if [[ -n "$APP_WEB_URL" ]]; then
+    printf '<h3><a href="%s" target="_blank">Open the web UI: %s</a></h3>\n\n' "$APP_WEB_URL" "$APP_WEB_URL"
+  fi
+  printf '</div>\n\n| | |\n| --- | --- |\n'
+  notes_row "Container" "${CT_ID} (${CT_HOSTNAME})"
+  if [[ "$CT_IP" == dhcp ]]; then
+    notes_row "IP address" "${ip:-unknown} (from DHCP: reserve it so it does not change)"
+  else
+    notes_row "IP address" "${ip:-unknown} (static)"
+  fi
+  [[ -n "$ports" ]] && notes_row "Ports" "$ports"
+  [[ -n "$config" ]] && notes_row "Config" "$config"
+  app_hook app_notes_rows
+  notes_row "Update" "\`pct enter ${CT_ID}\` then \`recipe update\`"
+  notes_row "Details" "\`pct enter ${CT_ID}\` then \`recipe info\`"
+  notes_row "Installed" "$(date '+%F') by proxmox-recipes"
+  printf '| **Docs** | [%s](https://github.com/farmnerds-net/proxmox-recipes/blob/%s/docs/apps/%s.md) |\n' \
+    "$(md_cell "$APP_NAME")" "$RECIPES_REF" "$APP_SLUG"
+}
+
+write_notes() {
+  pct set "$CT_ID" --description "$(notes_text)"
+}
+
 show_summary() {
   local ip
   ip=$(ct_ipv4) || true
@@ -660,6 +741,10 @@ show_summary() {
   say "  IPv4:      ${ip:-unknown}"
   say "  Console:   pct enter ${CT_ID}"
   say "  Log:       ${RCP_LOG}"
+  if [[ -n "$APP_WEB_URL" ]]; then
+    say "  Web UI:    ${APP_WEB_URL}"
+  fi
+  say "  Notes:     container ${CT_ID} > Summary in the Proxmox UI"
   app_hook app_summary_text
 }
 
@@ -706,5 +791,7 @@ recipe_main() {
   create_container
   start_container
   run_app_install
+  find_web_url
+  run_step "Adding notes" write_notes
   show_summary
 }

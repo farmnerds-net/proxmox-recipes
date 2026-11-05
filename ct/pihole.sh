@@ -49,12 +49,21 @@ app_settings_text() {
 
 app_summary_text() {
   local ip
-  ip=$(ct_ipv4) || true
-  say "  Web UI:    http://${ip%%/*}/admin"
+  ip=$(ct_ip_only)
   say "  Password:  shown at the end of Pi-hole's installer; change it with: pct exec ${CT_ID} -- pihole setpassword"
   if [[ "$CT_IP" == dhcp ]]; then
-    say "  Note:      Pi-hole should keep the same IP. Reserve ${ip%%/*} for this container in your DHCP server."
+    say "  Note:      Pi-hole should keep the same IP. Reserve ${ip} for this container in your DHCP server."
   fi
+}
+
+app_notes_rows() {
+  if [[ "$PIHOLE_UNBOUND" == yes ]]; then
+    notes_row "Unbound" "yes: Pi-hole resolves through Unbound on 127.0.0.1#5335"
+  else
+    notes_row "Unbound" "no"
+  fi
+  notes_row "Web password" "shown at the end of the install; to change it: \`pct exec ${CT_ID} -- pihole setpassword\`"
+  notes_row "Use it" "set $(ct_ip_only) as the DNS server in your router's DHCP settings"
 }
 
 if [[ -n "${RECIPES_SRC:-}" ]]; then

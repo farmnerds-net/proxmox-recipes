@@ -17,6 +17,9 @@
 #   app_version     optional: print the installed version
 #   APP_PORTS       optional: ports the app listens on, e.g. "80/tcp 53/udp"
 #   APP_CONFIG      optional: where config or credentials live
+#   app_web         optional: print "<http|https> <port> <path>" for the
+#                   app's web UI, read from the app's live config; used
+#                   for the link in the container's Proxmox notes
 #
 # Nothing here reads input itself. Only an app's own official installer,
 # run from app_install, may ask questions (see APP_INSTALL_INTERACTIVE in
@@ -149,6 +152,12 @@ load_app() {
   source "${RECIPE_LIB_DIR}/app.sh"
   declare -F app_install >/dev/null || fail "app.sh does not define app_install."
   declare -F app_update  >/dev/null || fail "app.sh does not define app_update."
+}
+
+app_web_text() {
+  if declare -F app_web >/dev/null; then
+    app_web 2>/dev/null || true
+  fi
 }
 
 app_version_text() {
