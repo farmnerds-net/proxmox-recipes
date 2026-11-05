@@ -25,8 +25,12 @@
 # shellcheck disable=SC2034  # read by misc/install.func
 {
   APP_PORTS="53/tcp 53/udp 80/tcp 443/tcp"
-  APP_CONFIG="/etc/pihole/pihole.toml; web password: 'pihole setpassword'"
+  APP_CONFIG="/etc/pihole/pihole.toml"
 }
+# Read again after the install, so the Unbound config is listed once it exists.
+if [[ -f /etc/unbound/unbound.conf.d/pi-hole.conf ]]; then
+  APP_CONFIG+=", /etc/unbound/unbound.conf.d/pi-hole.conf"
+fi
 
 UNBOUND_CONF="/etc/unbound/unbound.conf.d/pi-hole.conf"
 ROOT_SERVER="198.41.0.4"   # a.root-servers.net, as used by the Unbound guide
@@ -46,6 +50,40 @@ app_install() {
 app_update() {
   pihole -up
 }
+
+# Web UI address from Pi-hole's webserver.port setting
+# (https://docs.pi-hole.net/ftldns/configfile/#webserver_port), e.g.
+# "80o,443os,[::]:80o,[::]:443os". Uses the first IPv4 port on all
+# interfaces; 's' means HTTPS, and 'r' redirects to the first HTTPS port.
+app_web() {
+  local spec entry addr flags port first="" first_flags="" ssl=""
+  local -a entries
+  spec=$(pihole-FTL --config webserver.port 2>/dev/null) || return 0
+  IFS=, read -ra entries <<<"$spec"
+  for entry in "${entries[@]}"; do
+    entry=${entry//[[:space:]\"]/}
+    entry=${entry#+}
+    addr=""
+    [[ "$entry" == *:* ]] && addr=${entry%:*}
+    port=${entry##*:}
+    flags=${port##*[0-9]}
+    port=${port%"$flags"}
+    is_port "$port" || continue
+    [[ -z "$addr" || "$addr" == 0.0.0.0 ]] || continue
+    if [[ -z "$ssl" && "$flags" == *s* ]]; then ssl=$port; fi
+    if [[ -z "$first" ]]; then first=$port; first_flags=$flags; fi
+  done
+  [[ -n "$first" ]] || return 0
+  if [[ "$first_flags" == *s* ]]; then
+    printf 'https %s /admin/\n' "$first"
+  elif [[ "$first_flags" == *r* && -n "$ssl" ]]; then
+    printf 'https %s /admin/\n' "$ssl"
+  else
+    printf 'http %s /admin/\n' "$first"
+  fi
+}
+
+is_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 )); }
 
 app_version() {
   local v

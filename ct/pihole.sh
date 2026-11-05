@@ -49,12 +49,15 @@ app_settings_text() {
 
 app_summary_text() {
   local ip
-  ip=$(ct_ipv4) || true
-  say "  Web UI:    http://${ip%%/*}/admin"
-  say "  Password:  shown at the end of Pi-hole's installer; change it with: pct exec ${CT_ID} -- pihole setpassword"
+  ip=$(ct_ip_only)
+  say "  Password:  shown at the end of Pi-hole's installer; to change it: pct enter ${CT_ID}, then: pihole setpassword"
   if [[ "$CT_IP" == dhcp ]]; then
-    say "  Note:      Pi-hole should keep the same IP. Reserve ${ip%%/*} for this container in your DHCP server."
+    say "  Note:      Pi-hole should keep the same IP. Reserve ${ip} for this container in your DHCP server."
   fi
+}
+
+app_notes_rows() {
+  notes_row "Web password" "shown at the end of the install; to change it: \`pct enter ${CT_ID}\` then \`pihole setpassword\`"
 }
 
 if [[ -n "${RECIPES_SRC:-}" ]]; then

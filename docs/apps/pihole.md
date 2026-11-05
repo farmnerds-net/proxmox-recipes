@@ -58,9 +58,12 @@ To answer the question in advance, set `PIHOLE_UNBOUND=yes` or
 
 ## After install
 
+The container's **Notes** in the Proxmox UI have a direct link to the web
+UI and everything below.
+
 - **Web UI:** `http://<container-ip>/admin`
-- **Password:** shown on the installer's last screen. To change it:
-  `pct exec <id> -- pihole setpassword`
+- **Password:** shown on the installer's last screen. To change it, run
+  `pct enter <id>`, then `pihole setpassword`.
 - **Fixed IP:** your devices will point at this address for DNS, so it must
   not change. Either reserve it in your DHCP server, or choose a static IP in
   the recipe's Advanced mode.
