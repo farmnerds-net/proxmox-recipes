@@ -689,12 +689,36 @@ find_web_url() {
   APP_WEB_URL="${scheme}://${host}${path}"
 }
 
-md_cell() {   # <text> -> safe inside a Markdown table cell / HTML
+md_cell() {   # <text> -> safe inside a Markdown table cell
+  # Outside `code spans`, & < > are escaped so they show as text, not HTML.
+  # Inside them Markdown already shows text as-is, so escaping there would
+  # show "&amp;" instead of "&". A | is escaped everywhere: it would
+  # otherwise end the table cell (GFM accepts \| inside code spans too).
+  # A final unmatched backtick does not start a code span, so the text
+  # after it is escaped like any other text.
+  local s=$1 out="" part ticks in_code=0
+  ticks=${s//[!\`]/}
+  while [[ "$s" == *'`'* ]]; do
+    part=${s%%'`'*}
+    s=${s#*'`'}
+    out+="$(md_escape "$part" "$in_code")"'`'
+    ticks=${ticks#?}
+    in_code=$(( 1 - in_code ))
+    # An opening backtick with no closing one left: plain text after all.
+    if (( in_code == 1 && ${#ticks} == 0 )); then in_code=0; fi
+  done
+  out+="$(md_escape "$s" "$in_code")"
+  printf '%s' "$out"
+}
+
+md_escape() {   # <text> <in code span: 0|1>
   local s=$1
   # Replacements are quoted: in bash 5.2+ a bare & means "the match".
-  s=${s//'&'/'&amp;'}
-  s=${s//'<'/'&lt;'}
-  s=${s//'>'/'&gt;'}
+  if [[ "$2" == 0 ]]; then
+    s=${s//'&'/'&amp;'}
+    s=${s//'<'/'&lt;'}
+    s=${s//'>'/'&gt;'}
+  fi
   s=${s//'|'/'\|'}
   printf '%s' "$s"
 }
