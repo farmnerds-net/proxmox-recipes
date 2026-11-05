@@ -250,7 +250,7 @@ ui_ask_mode() {
 }
 
 ui_ask_advanced() {
-  local def_ctid item s
+  local def_ctid s net_choice auth_choice   # the *_choice vars start unset
   local -a items
 
   def_ctid=$(default_ctid)
@@ -284,11 +284,10 @@ ui_ask_advanced() {
   fi
 
   if ! ui_is_set CT_IP; then
-    item=""
-    ui_menu item "IPv4 address:" dhcp \
+    ui_menu net_choice "IPv4 address:" dhcp \
       dhcp "Get an address from DHCP" \
       static "Set a static address"
-    if [[ "$item" == dhcp ]]; then
+    if [[ "$net_choice" == dhcp ]]; then
       CT_IP=dhcp
     else
       ui_input CT_IP "Static IPv4 address with prefix, e.g. 192.168.1.50/24:" "" valid_cidr4 \
@@ -306,13 +305,12 @@ ui_ask_advanced() {
     "Enter IP addresses separated by spaces, or leave it blank."
 
   if ! ui_is_set CT_PASSWORD && ! ui_is_set CT_SSH_KEY; then
-    item=""
-    ui_menu item "Root login:" password \
+    ui_menu auth_choice "Root login:" password \
       password "Set a root password" \
       sshkey "Add an SSH public key" \
       both "Password and SSH key" \
       none "Neither (use 'pct enter' from the host)"
-    case $item in
+    case $auth_choice in
       password) CT_SSH_KEY="" ;;
       sshkey)   CT_PASSWORD="" ;;
       none)     CT_PASSWORD=""; CT_SSH_KEY="" ;;
