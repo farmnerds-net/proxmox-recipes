@@ -29,6 +29,8 @@ RECIPE_ETC_DIR="/etc/recipe"
 RECIPE_INFO="${RECIPE_ETC_DIR}/info"
 RECIPE_CONF="${RECIPE_ETC_DIR}/recipe.conf"
 RECIPE_BIN="/usr/local/bin/recipe"
+RECIPE_LOG_DIR="/var/log/recipe"
+RECIPE_UPDATE_LOG="${RECIPE_LOG_DIR}/update.log"
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -200,6 +202,7 @@ cmd_help() {
 Usage: recipe <command>
 
   update   Upgrade the OS packages, then update the app to the latest recipe.
+           Output is also appended to /var/log/recipe/update.log.
   info     Show the app, its version, IP address, ports and config location.
   help     Show this help.
 EOF
@@ -217,7 +220,18 @@ cmd_info() {
     "Ports:"     "${APP_PORTS:-none}" \
     "Config:"    "${APP_CONFIG:-none}" \
     "Installed:" "$INSTALLED" \
-    "Updated:"   "$UPDATED"
+    "Updated:"   "$UPDATED" \
+    "Update log:" "$RECIPE_UPDATE_LOG"
+}
+
+# 'recipe update', with its output also appended to the update log. The
+# pipeline's status is cmd_update's (pipefail), so failures still fail.
+cmd_update_logged() {
+  (( EUID == 0 )) || fail "Run 'recipe update' as root."
+  # Private log, without changing the umask the update itself runs under.
+  (umask 077; mkdir -p "$RECIPE_LOG_DIR"; touch "$RECIPE_UPDATE_LOG")
+  printf '==== recipe update %s ====\n' "$(date '+%F %T')" >>"$RECIPE_UPDATE_LOG"
+  cmd_update 2>&1 | tee -a "$RECIPE_UPDATE_LOG"
 }
 
 fetch_to() {   # <repo-relative path> <destination>
@@ -262,7 +276,7 @@ cmd_update_app() {
 
 recipe_cli() {
   case "${1:-help}" in
-    update)        cmd_update ;;
+    update)        cmd_update_logged ;;
     __update-app)  cmd_update_app ;;
     info)          cmd_info ;;
     help|-h|--help) cmd_help ;;

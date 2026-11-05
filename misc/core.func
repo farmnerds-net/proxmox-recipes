@@ -57,14 +57,22 @@ log_line() {
 log_start() {   # <app slug>
   mkdir -p "$RCP_LOG_DIR"
   RCP_LOG="${RCP_LOG_DIR}/${1}-pending-$$.log"
-  : >"$RCP_LOG"
-  chmod 600 "$RCP_LOG"
-  log_line "proxmox-recipes: $1 started"
+  (umask 077; : >"$RCP_LOG")
+  log_line "==== proxmox-recipes: $1 started ===="
+}
+
+# A run that was cancelled before a container ID was chosen created
+# nothing, so its pending log is not worth keeping.
+log_discard_pending() {
+  if [[ "$RCP_LOG" == "${RCP_LOG_DIR}/"*-pending-*.log ]]; then
+    rm -f -- "$RCP_LOG"
+    RCP_LOG=""
+  fi
 }
 
 log_bind_ctid() {   # <app slug> <ctid>
   local final="${RCP_LOG_DIR}/${1}-${2}.log"
-  cat -- "$RCP_LOG" >>"$final"
+  (umask 077; cat -- "$RCP_LOG" >>"$final")
   chmod 600 "$final"
   rm -f -- "$RCP_LOG"
   RCP_LOG=$final
@@ -110,6 +118,27 @@ die() { rcp_fail 1 "$*"; }
 rcp_install_traps() {
   trap 'rcp_trap_err "$?" "${BASH_SOURCE[0]##*/}:${LINENO}" "$BASH_COMMAND"' ERR
   trap 'rcp_fail 130 "Interrupted."' INT TERM
+  trap rcp_remove_tmp EXIT
+}
+
+# ---- temporary files --------------------------------------------------------
+#
+# Host-side temp files are registered here and removed on every exit,
+# including failures and Ctrl-C.
+
+RCP_TMP_FILES=()
+
+rcp_mktemp() {   # <variable to receive the path>
+  local f
+  f=$(mktemp)
+  RCP_TMP_FILES+=("$f")
+  printf -v "$1" '%s' "$f"
+}
+
+rcp_remove_tmp() {
+  if (( ${#RCP_TMP_FILES[@]} )); then
+    rm -f -- "${RCP_TMP_FILES[@]}"
+  fi
 }
 
 # ---- step runner ------------------------------------------------------------

@@ -10,6 +10,13 @@ binaries, documented build-from-source steps, or their own installer. No
 Docker, no Podman, no undocumented workarounds. If an app doesn't have an
 official native install path, it doesn't belong in this repo.
 
+## Apps
+
+| App | Recipe | Notes |
+| --- | ------ | ----- |
+| [Debian](docs/apps/debian.md) | `debian` | Plain Debian 12, no app |
+| [Pi-hole](docs/apps/pihole.md) | `pihole` | Optional Unbound. Pi-hole's installer asks its own questions |
+
 ## Usage
 
 Run this on the Proxmox host shell, replacing `<app>` with the recipe you want:
@@ -22,16 +29,48 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/farmnerds-net/proxmox-re
 > anything root can do, so read it before you run it. Never pipe a script you
 > haven't looked at into your hypervisor.
 
-### Updating an app
+Each recipe asks how to set up the container: **Default** accepts the
+recipe's defaults, **Advanced** lets you choose the container ID, hostname,
+CPU, memory, disk, storage, bridge, DHCP or static IP, VLAN, DNS, root
+password or SSH key, and start on boot. Containers are always unprivileged.
 
-Inside any container built by a recipe:
+### Inside the container: the `recipe` command
 
 ```bash
-recipe update
+recipe update   # upgrade the OS packages, then the app
+recipe info     # app, version, IP, ports, config location
+recipe help
 ```
 
-That upgrades the OS packages and the app. `recipe info` shows the app's
-version, IP, ports and where its config lives.
+`recipe update` also appends its output to `/var/log/recipe/update.log`.
+
+### Logs and failures
+
+Each run logs to `/var/log/proxmox-recipes/<app>-<ctid>.log` on the host.
+If a step fails, the recipe shows which step and the end of the log, then
+asks whether to destroy the half-built container. Cancelling before the
+container is created leaves nothing behind.
+
+### Presets (skipping questions)
+
+Every question is backed by a plain variable, and a question is skipped
+when its variable is already set. The full list is at the top of
+[`misc/build.func`](misc/build.func); app options are listed in each app's
+doc. For example:
+
+```bash
+SETUP_MODE=default CT_ID=150 bash -c "$(curl -fsSL https://raw.githubusercontent.com/farmnerds-net/proxmox-recipes/main/ct/debian.sh)"
+```
+
+### Testing a branch or a local checkout
+
+```bash
+RECIPES_REF=<branch> bash ct/<app>.sh            # engine and scripts from that branch
+RECIPES_SRC=/path/to/checkout bash ct/<app>.sh   # host side from local files
+```
+
+With `RECIPES_REF`, the container's `recipe update` keeps following that
+branch.
 
 ## Layout
 
@@ -40,10 +79,11 @@ version, IP, ports and where its config lives.
 - `install/` — the install script for each app. Runs *inside* the new
   container.
 - `misc/` — the shared engine used by the recipes:
-  - `build.func`
-  - `install.func`
-  - `tools.func`
-  - `core.func`
+  - `core.func` — output, logging, error handling, preflight checks
+  - `build.func` — host side: menus, template, `pct create`, install, summary
+  - `install.func` — container side: OS setup, app install, the `recipe`
+    command
+- `docs/apps/` — one page per app.
 
 ## Credits
 
