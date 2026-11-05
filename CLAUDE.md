@@ -60,6 +60,11 @@ their source while writing ours. General Proxmox knowledge (`pct`, `pveam`,
   from `https://raw.githubusercontent.com/farmnerds-net/proxmox-recipes/main/`.
   If `RECIPES_SRC` is set to a local path, load from disk instead. All
   testing uses `RECIPES_SRC`.
+- **App repos:** a recipe may set `RECIPES_APP_REPO` (owner/name) to keep
+  its `install/` and `docs/` in another repo that uses this engine, e.g.
+  `farmnerds-net/proxmox-recipes-experimental`. Keep that working: the
+  engine fetches `misc/` from here and app files with `app_fetch`, never
+  the other way round. The scope rules above apply to this repo only.
 - **Logging:** host log at `/var/log/proxmox-recipes/<app>-<ctid>.log`. On
   error, show the failing step and last log lines, then offer to destroy the
   half-built container.
