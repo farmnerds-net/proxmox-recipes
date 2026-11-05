@@ -28,7 +28,7 @@ which builds the app from source. It asks no questions. It:
 - creates a self-signed signing certificate (see below)
 - creates and starts the systemd `documenso` service, running as `www-data`
 
-**The install is slow.** The build alone takes several minutes and needs
+**The install is slower than most recipes.** The build takes a few minutes and needs
 the 4 GB of memory the recipe gives the container. Once it runs, Documenso
 uses far less; you can lower the memory afterwards in the Proxmox UI, but
 raise it again before `recipe update`, which rebuilds the app.

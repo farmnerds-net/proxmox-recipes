@@ -89,7 +89,7 @@ app_update() {
     msg "Documenso ${current} is already the latest release."
     return 0
   fi
-  step "Updating Documenso ${current} -> ${latest}"
+  step "Updating Documenso ${current} -> ${latest#v}"
   new="${DOCUMENSO_DIR}.new"
   old="${DOCUMENSO_DIR}.old"
   rm -rf -- "$new" "$old"
@@ -194,7 +194,7 @@ documenso_build() {   # <tag> <directory>
   node_install "$(node_major_for "$dir")"
   step "Installing Documenso's dependencies (npm ci)"
   ( cd "$dir" && npm ci --no-audit --no-fund )
-  step "Building Documenso (this takes several minutes)"
+  step "Building Documenso (this takes a few minutes)"
   ( cd "$dir" && NODE_OPTIONS="--max-old-space-size=${heap}" \
       npx --no-install turbo run build --filter=@documenso/remix )
   [[ -f "${dir}/apps/remix/build/server/main.js" ]] || fail "The build did not produce apps/remix/build/server/main.js."
