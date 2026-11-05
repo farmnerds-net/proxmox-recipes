@@ -37,6 +37,14 @@ RECIPE_UPDATE_LOG="${RECIPE_LOG_DIR}/update.log"
 
 export DEBIAN_FRONTEND=noninteractive
 
+# pct exec starts with a minimal PATH that lacks /usr/local/*, where apps
+# such as Pi-hole put their commands. Without this, app_version and the
+# app's own scripts cannot find them during the build.
+case ":${PATH}:" in
+  *:/usr/local/bin:*) ;;
+  *) export PATH="/usr/local/sbin:/usr/local/bin:${PATH}" ;;
+esac
+
 # ---- output -----------------------------------------------------------------
 
 msg()  { printf '%s\n' "$*"; }

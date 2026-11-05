@@ -50,7 +50,7 @@ app_settings_text() {
 app_summary_text() {
   local ip
   ip=$(ct_ip_only)
-  say "  Password:  shown at the end of Pi-hole's installer; change it with: pct exec ${CT_ID} -- pihole setpassword"
+  say "  Password:  shown at the end of Pi-hole's installer; to change it: pct enter ${CT_ID}, then: pihole setpassword"
   if [[ "$CT_IP" == dhcp ]]; then
     say "  Note:      Pi-hole should keep the same IP. Reserve ${ip} for this container in your DHCP server."
   fi
@@ -62,7 +62,7 @@ app_notes_rows() {
   else
     notes_row "Unbound" "no"
   fi
-  notes_row "Web password" "shown at the end of the install; to change it: \`pct exec ${CT_ID} -- pihole setpassword\`"
+  notes_row "Web password" "shown at the end of the install; to change it: \`pct enter ${CT_ID}\` then \`pihole setpassword\`"
   notes_row "Use it" "set $(ct_ip_only) as the DNS server in your router's DHCP settings"
 }
 
