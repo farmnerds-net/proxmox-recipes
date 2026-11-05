@@ -25,6 +25,7 @@ official native install path, it doesn't belong in this repo.
 | [cloudflared](docs/apps/cloudflared.md) | `cloudflared` | Cloudflare Tunnel connector; paste your tunnel token inside the container afterwards |
 | [Documenso](docs/apps/documenso.md) | `documenso` | Document signing, built from source (slow install). Set up SMTP before signing up |
 | [CrowdSec](docs/apps/crowdsec.md) | `crowdsec` | Central Local API for agents and bouncers on your network; asks whether to share signals (default no) |
+| [Authelia](docs/apps/authelia.md) | `authelia` | Single sign-on / 2FA portal for apps behind your HTTPS reverse proxy; asks for the portal URL |
 
 ## Usage
 
