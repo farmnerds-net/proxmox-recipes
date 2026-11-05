@@ -145,9 +145,9 @@ rcp_remove_tmp() {
 #
 # run_step "<message>" <command> [args...]
 # Runs the command in a background subshell with all output going to the
-# log, shows a spinner while it runs, and prints ok or returns its exit
-# code (which then trips the ERR trap in the caller). Steps run in a
-# subshell, so they cannot change the caller's variables.
+# log, shows a spinner while it runs, and prints ok. A failed step is
+# fatal: it goes straight to rcp_fail, named by its message. Steps run in
+# a subshell, so they cannot change the caller's variables.
 
 run_step() {
   local msg=$1 pid rc=0 n=0 frames="|/-\\"
@@ -172,7 +172,8 @@ run_step() {
   wait "$pid" || rc=$?
   if (( rc != 0 )); then
     log_line "STEP FAILED (exit $rc): $msg"
-    return "$rc"
+    RCP_STEP=""   # named in the message below; don't repeat it
+    rcp_fail "$rc" "${msg} failed (exit ${rc})."
   fi
   log_line "STEP OK: $msg"
   RCP_STEP=""
