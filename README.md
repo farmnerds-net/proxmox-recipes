@@ -26,6 +26,7 @@ official native install path, it doesn't belong in this repo.
 | [Documenso](docs/apps/documenso.md) | `documenso` | Document signing, built from source (slow install). Set up SMTP before signing up |
 | [CrowdSec](docs/apps/crowdsec.md) | `crowdsec` | Central Local API for agents and bouncers on your network; asks whether to share signals (default no) |
 | [Authelia](docs/apps/authelia.md) | `authelia` | Single sign-on / 2FA portal for apps behind your HTTPS reverse proxy; asks for the portal URL |
+| [Caddy](docs/apps/caddy.md) | `caddy` | Reverse proxy with automatic HTTPS; no questions, sites in the Caddyfile. Pairs with Authelia |
 
 ## Usage
 
