@@ -65,7 +65,7 @@ protect each app by adding Authelia's forward-auth check to that app's
 proxy entry. Authelia has a guide for each proxy:
 
 - [Nginx Proxy Manager](https://www.authelia.com/integration/proxies/nginx-proxy-manager/)
-- [Caddy](https://www.authelia.com/integration/proxies/caddy/)
+- [Caddy](https://www.authelia.com/integration/proxies/caddy/) (there is a [Caddy recipe](caddy.md), tested with this one)
 - [Traefik](https://www.authelia.com/integration/proxies/traefik/)
 - [nginx](https://www.authelia.com/integration/proxies/nginx/)
 - [HAProxy](https://www.authelia.com/integration/proxies/haproxy/)
