@@ -184,10 +184,6 @@ create_local_zone() {
   pdns_control rediscover
 }
 
-dig_status() {   # <dig args...> -> NOERROR, SERVFAIL, ...
-  dig "$@" | sed -n 's/.*status: \([A-Z]*\),.*/\1/p'
-}
-
 check_powerdns() {
   local i status=""
   step "Testing PowerDNS"

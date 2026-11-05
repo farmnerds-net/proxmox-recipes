@@ -662,7 +662,7 @@ run_app_install() {
 # uses the UI's own font.
 
 APP_WEB_URL=""
-RECIPES_SUPPORT_URL="https://ko-fi.com/X8X01OKYSJ"
+RECIPES_SUPPORT_URL="https://ko-fi.com/farmnerds"
 RECIPES_SUPPORT_BUTTON="https://storage.ko-fi.com/cdn/kofi6.png?v=6"
 
 ct_ip_only() {
