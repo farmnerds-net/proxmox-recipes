@@ -20,6 +20,7 @@ official native install path, it doesn't belong in this repo.
 | [Blocky](docs/apps/blocky.md) | `blocky` | No questions and no web UI; settings in one YAML file |
 | [Unbound](docs/apps/unbound.md) | `unbound` | Recursive DNS with DNSSEC for your LAN; no questions, no web UI |
 | [CoreDNS](docs/apps/coredns.md) | `coredns` | Plugin-based DNS server; no questions, no web UI, settings in the Corefile |
+| [PowerDNS](docs/apps/powerdns.md) | `powerdns` | Recursor + Authoritative Server with a local `home.arpa` zone and HTTP API; no questions |
 
 ## Usage
 
