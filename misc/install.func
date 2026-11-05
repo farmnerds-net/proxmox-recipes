@@ -100,7 +100,6 @@ cleanup() {
   step "Cleaning up"
   apt_quiet autoremove --purge
   apt-get clean
-  rm -f /root/recipe-*.sh
 }
 
 # Entry point at build time. Expects RECIPE_APP_NAME, RECIPE_APP_SLUG and
