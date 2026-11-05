@@ -31,6 +31,18 @@
 #   RECIPES_REF   git branch/tag on GitHub (default main). Also written into
 #                 the container, so 'recipe update' follows the same ref.
 #
+# A recipe can keep its app files (install/<app>.sh, docs/apps/<app>.md) in
+# another GitHub repo and still use this engine. Its ct/<app>.sh sets
+# RECIPES_APP_REPO before loading this file. misc/ always comes from this
+# repo; the app script, the docs link and the container's 'recipe update'
+# use the app repo:
+#   RECIPES_APP_REPO  owner/name of the repo with the app files (default:
+#                     this repo)
+#   RECIPES_APP_REF   its branch/tag (default: RECIPES_REF for this repo,
+#                     main for another one)
+#   RECIPES_APP_SRC   local checkout of the app repo (default: RECIPES_SRC
+#                     for this repo, none for another one)
+#
 # Settings. Each one is a plain variable; any that is already set (even
 # to an empty string, for the optional ones) skips its menu, so a caller
 # can preset some or all of them and run without questions:
@@ -60,15 +72,42 @@ if [[ ! "$RECIPES_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
   printf 'proxmox-recipes: RECIPES_REF %q is not a valid branch or tag name\n' "$RECIPES_REF" >&2
   exit 1
 fi
-RECIPES_RAW_BASE="https://raw.githubusercontent.com/farmnerds-net/proxmox-recipes/${RECIPES_REF}"
+RECIPES_ENGINE_REPO="farmnerds-net/proxmox-recipes"
+RECIPES_RAW_BASE="https://raw.githubusercontent.com/${RECIPES_ENGINE_REPO}/${RECIPES_REF}"
+
+RECIPES_APP_REPO=${RECIPES_APP_REPO:-$RECIPES_ENGINE_REPO}
+if [[ ! "$RECIPES_APP_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  printf 'proxmox-recipes: RECIPES_APP_REPO %q is not an owner/name GitHub repo\n' "$RECIPES_APP_REPO" >&2
+  exit 1
+fi
+if [[ "$RECIPES_APP_REPO" == "$RECIPES_ENGINE_REPO" ]]; then
+  RECIPES_APP_REF=${RECIPES_APP_REF:-$RECIPES_REF}
+  RECIPES_APP_SRC=${RECIPES_APP_SRC:-${RECIPES_SRC:-}}
+else
+  RECIPES_APP_REF=${RECIPES_APP_REF:-main}
+  RECIPES_APP_SRC=${RECIPES_APP_SRC:-}
+fi
+if [[ ! "$RECIPES_APP_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+  printf 'proxmox-recipes: RECIPES_APP_REF %q is not a valid branch or tag name\n' "$RECIPES_APP_REF" >&2
+  exit 1
+fi
+RECIPES_APP_RAW_BASE="https://raw.githubusercontent.com/${RECIPES_APP_REPO}/${RECIPES_APP_REF}"
 
 # ---- loading repo files -----------------------------------------------------
 
-recipe_fetch() {   # <repo-relative path> -> file content on stdout
+recipe_fetch() {   # <engine-repo-relative path> -> file content on stdout
   if [[ -n "${RECIPES_SRC:-}" ]]; then
     cat -- "${RECIPES_SRC%/}/$1"
   else
     curl -fsSL --retry 2 --max-time 30 "${RECIPES_RAW_BASE}/$1"
+  fi
+}
+
+app_fetch() {   # <app-repo-relative path> -> file content on stdout
+  if [[ -n "$RECIPES_APP_SRC" ]]; then
+    cat -- "${RECIPES_APP_SRC%/}/$1"
+  else
+    curl -fsSL --retry 2 --max-time 30 "${RECIPES_APP_RAW_BASE}/$1"
   fi
 }
 
@@ -587,14 +626,14 @@ start_container() {
 
 # Push the container-side engine and the app script into the container,
 # then run the install phases there (see misc/install.func).
-push_repo_file() {   # <repo-relative path> <path in container>
+push_repo_file() {   # <recipe_fetch|app_fetch> <repo-relative path> <path in container>
   local tmp rc=0
   tmp=$(mktemp)
-  recipe_fetch "$1" >"$tmp" || rc=$?
+  "$1" "$2" >"$tmp" || rc=$?
   if (( rc == 0 )); then
-    pct push "$CT_ID" "$tmp" "$2" --perms 0644 || rc=$?
+    pct push "$CT_ID" "$tmp" "$3" --perms 0644 || rc=$?
   else
-    echo "could not load $1"
+    echo "could not load $2"
   fi
   rm -f -- "$tmp"
   return "$rc"
@@ -602,8 +641,8 @@ push_repo_file() {   # <repo-relative path> <path in container>
 
 push_install_files() {
   pct exec "$CT_ID" -- mkdir -p /usr/local/lib/recipe
-  push_repo_file misc/install.func /usr/local/lib/recipe/install.func
-  push_repo_file "$APP_INSTALL_SCRIPT" /usr/local/lib/recipe/app.sh
+  push_repo_file recipe_fetch misc/install.func /usr/local/lib/recipe/install.func
+  push_repo_file app_fetch "$APP_INSTALL_SCRIPT" /usr/local/lib/recipe/app.sh
 }
 
 container_phase() {   # <install.func phase function> [tty]
@@ -612,6 +651,7 @@ container_phase() {   # <install.func phase function> [tty]
     RECIPE_APP_NAME="$APP_NAME"
     RECIPE_APP_SLUG="$APP_SLUG"
     RECIPES_RAW_BASE="$RECIPES_RAW_BASE"
+    RECIPES_APP_RAW_BASE="$RECIPES_APP_RAW_BASE"
     TERM="${TERM:-xterm}"
   )
   for name in "${APP_ENV_VARS[@]}"; do
@@ -749,8 +789,8 @@ notes_text() {
   notes_row "Update" "\`pct enter ${CT_ID}\` then \`recipe update\`"
   notes_row "Details" "\`pct enter ${CT_ID}\` then \`recipe info\`"
   notes_row "Installed" "$(date '+%F') by proxmox-recipes"
-  printf '| **Docs** | [%s](https://github.com/farmnerds-net/proxmox-recipes/blob/%s/docs/apps/%s.md) |\n' \
-    "$(md_cell "$APP_NAME")" "$RECIPES_REF" "$APP_SLUG"
+  printf '| **Docs** | [%s](https://github.com/%s/blob/%s/docs/apps/%s.md) |\n' \
+    "$(md_cell "$APP_NAME")" "$RECIPES_APP_REPO" "$RECIPES_APP_REF" "$APP_SLUG"
 }
 
 write_notes() {
@@ -805,6 +845,11 @@ recipe_main() {
     log_line "Source: local checkout ${RECIPES_SRC}"
   else
     log_line "Source: ${RECIPES_RAW_BASE}"
+  fi
+  if [[ -n "$RECIPES_APP_SRC" ]]; then
+    log_line "App source: local checkout ${RECIPES_APP_SRC}"
+  else
+    log_line "App source: ${RECIPES_APP_RAW_BASE}"
   fi
   say_head "proxmox-recipes: ${APP_NAME}"
   preflight_checks
