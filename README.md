@@ -88,6 +88,22 @@ RECIPES_SRC=/path/to/checkout bash ct/<app>.sh   # host side from local files
 With `RECIPES_REF`, the container's `recipe update` keeps following that
 branch.
 
+### Recipes from another repo
+
+The engine can also run recipes whose app files live in a different repo,
+such as
+[proxmox-recipes-experimental](https://github.com/farmnerds-net/proxmox-recipes-experimental).
+Such a recipe sets `RECIPES_APP_REPO` to that repo. `misc/` still comes
+from this repo; the install script, the docs link in the notes and the
+container's `recipe update` use the other one. To test both from local
+checkouts:
+
+```bash
+RECIPES_SRC=/path/to/proxmox-recipes RECIPES_APP_SRC=/path/to/other-repo bash ct/<app>.sh
+```
+
+`RECIPES_APP_REF` picks the other repo's branch (default `main`).
+
 ## Layout
 
 - `ct/` — host-side recipe, one per app. Runs on the Proxmox host and creates

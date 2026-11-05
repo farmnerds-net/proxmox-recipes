@@ -92,11 +92,13 @@ install_base_packages() {
   apt_quiet install --no-install-recommends ca-certificates curl
 }
 
-write_conf() {   # <raw base url>
+write_conf() {   # <engine raw base url> <app raw base url>
   mkdir -p "$RECIPE_ETC_DIR"
   {
-    printf '# Where "recipe update" fetches the engine and app script from.\n'
+    printf '# Where "recipe update" fetches the engine (misc/) and the app script\n'
+    printf '# (install/) from.\n'
     printf 'RECIPES_RAW_BASE=%q\n' "$1"
+    printf 'RECIPES_APP_RAW_BASE=%q\n' "$2"
   } >"$RECIPE_CONF"
 }
 
@@ -120,11 +122,12 @@ cleanup() {
 }
 
 # Build-time entry points, run by the host in this order. Each expects
-# RECIPE_APP_NAME, RECIPE_APP_SLUG and RECIPES_RAW_BASE in the environment
+# RECIPE_APP_NAME, RECIPE_APP_SLUG, RECIPES_RAW_BASE and RECIPES_APP_RAW_BASE
+# in the environment
 # and app.sh in RECIPE_LIB_DIR, plus any app options the recipe forwards.
 
 install_phase_start() {
-  : "${RECIPE_APP_NAME:?}" "${RECIPE_APP_SLUG:?}" "${RECIPES_RAW_BASE:?}"
+  : "${RECIPE_APP_NAME:?}" "${RECIPE_APP_SLUG:?}" "${RECIPES_RAW_BASE:?}" "${RECIPES_APP_RAW_BASE:?}"
   (( EUID == 0 )) || fail "The install must run as root."
   load_app
 }
@@ -145,7 +148,7 @@ install_app() {
 
 install_finish() {
   install_phase_start
-  write_conf "$RECIPES_RAW_BASE"
+  write_conf "$RECIPES_RAW_BASE" "$RECIPES_APP_RAW_BASE"
   install_recipe_command
   info_write "$(date '+%F %T')"
   cleanup
@@ -250,6 +253,8 @@ conf_load() {
   # shellcheck source=/dev/null
   source "$RECIPE_CONF"
   : "${RECIPES_RAW_BASE:?RECIPES_RAW_BASE is not set in ${RECIPE_CONF}}"
+  # Containers built before app repos existed have only RECIPES_RAW_BASE.
+  RECIPES_APP_RAW_BASE=${RECIPES_APP_RAW_BASE:-$RECIPES_RAW_BASE}
 }
 
 # ---- the recipe command -----------------------------------------------------
@@ -295,10 +300,10 @@ cmd_update_logged() {
   cmd_update 2>&1 | tee -a "$RECIPE_UPDATE_LOG"
 }
 
-fetch_to() {   # <repo-relative path> <destination>
-  curl -fsSL --retry 2 --max-time 30 -o "$2" "${RECIPES_RAW_BASE}/$1" ||
-    fail "Could not download ${RECIPES_RAW_BASE}/$1"
-  bash -n "$2" || fail "Downloaded $1 has syntax errors; not using it."
+fetch_to() {   # <raw base url> <repo-relative path> <destination>
+  curl -fsSL --retry 2 --max-time 30 -o "$3" "$1/$2" ||
+    fail "Could not download $1/$2"
+  bash -n "$3" || fail "Downloaded $2 has syntax errors; not using it."
 }
 
 cmd_update() {
@@ -312,8 +317,8 @@ cmd_update() {
   tmp=$(mktemp -d)
   # shellcheck disable=SC2064  # expand now: tmp is local
   trap "rm -rf -- '$tmp'" EXIT
-  fetch_to misc/install.func "${tmp}/install.func"
-  fetch_to "install/${APP_SLUG}.sh" "${tmp}/app.sh"
+  fetch_to "$RECIPES_RAW_BASE" misc/install.func "${tmp}/install.func"
+  fetch_to "$RECIPES_APP_RAW_BASE" "install/${APP_SLUG}.sh" "${tmp}/app.sh"
   install -m 0644 "${tmp}/install.func" "${RECIPE_LIB_DIR}/install.func"
   install -m 0644 "${tmp}/app.sh" "${RECIPE_LIB_DIR}/app.sh"
 
