@@ -1,0 +1,254 @@
+# shellcheck shell=bash
+#
+# misc/install.func - container-side engine for proxmox-recipes.
+#
+# Lives at /usr/local/lib/recipe/install.func inside every container a
+# recipe builds, next to the app's own script (app.sh, a copy of
+# install/<app>.sh). It is used twice:
+#
+#   1. At build time the host pushes both files in and runs install_main.
+#   2. Afterwards, /usr/local/bin/recipe sources it and calls recipe_cli.
+#
+# An app script (install/<app>.sh) defines:
+#   app_install     install the app (runs once, at build time)
+#   app_update      upgrade the app (runs on 'recipe update')
+#   app_version     optional: print the installed version
+#   APP_PORTS       optional: ports the app listens on, e.g. "80/tcp 53/udp"
+#   APP_CONFIG      optional: where config or credentials live
+#
+# Nothing here reads input; it runs unattended.
+
+set -Eeuo pipefail
+
+RECIPE_LIB_DIR="/usr/local/lib/recipe"
+RECIPE_ETC_DIR="/etc/recipe"
+RECIPE_INFO="${RECIPE_ETC_DIR}/info"
+RECIPE_CONF="${RECIPE_ETC_DIR}/recipe.conf"
+RECIPE_BIN="/usr/local/bin/recipe"
+
+export DEBIAN_FRONTEND=noninteractive
+
+# ---- output -----------------------------------------------------------------
+
+msg()  { printf '%s\n' "$*"; }
+step() { printf '==> %s\n' "$*"; }
+warn() { printf 'recipe: warning: %s\n' "$*" >&2; }
+fail() { printf 'recipe: %s\n' "$*" >&2; exit 1; }
+
+# ---- apt --------------------------------------------------------------------
+
+apt_quiet() {   # apt-get with no prompts and no config-file questions
+  apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$@"
+}
+
+os_upgrade() {
+  step "Updating package lists"
+  apt_quiet update
+  step "Upgrading installed packages"
+  apt_quiet full-upgrade
+}
+
+# ---- build-time steps -------------------------------------------------------
+
+check_network() {
+  local i
+  step "Checking network"
+  for (( i = 0; i < 30; i++ )); do
+    if getent hosts deb.debian.org >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "Cannot resolve deb.debian.org; check the container's network and DNS."
+}
+
+setup_locale() {
+  # C.UTF-8 ships with Debian's libc, so no locale needs generating.
+  if [[ ! -s /etc/default/locale ]] || ! grep -q '^LANG=' /etc/default/locale; then
+    step "Setting locale to C.UTF-8"
+    printf 'LANG=C.UTF-8\n' >>/etc/default/locale
+  fi
+}
+
+install_base_packages() {
+  step "Installing base packages"
+  apt_quiet install --no-install-recommends ca-certificates curl
+}
+
+write_conf() {   # <raw base url>
+  mkdir -p "$RECIPE_ETC_DIR"
+  {
+    printf '# Where "recipe update" fetches the engine and app script from.\n'
+    printf 'RECIPES_RAW_BASE=%q\n' "$1"
+  } >"$RECIPE_CONF"
+}
+
+install_recipe_command() {
+  step "Installing the recipe command"
+  cat >"$RECIPE_BIN" <<'EOF'
+#!/usr/bin/env bash
+# recipe - manage this proxmox-recipes container. See 'recipe help'.
+set -Eeuo pipefail
+# shellcheck source=/dev/null
+source /usr/local/lib/recipe/install.func
+recipe_cli "$@"
+EOF
+  chmod 0755 "$RECIPE_BIN"
+}
+
+cleanup() {
+  step "Cleaning up"
+  apt_quiet autoremove --purge
+  apt-get clean
+  rm -f /root/recipe-*.sh
+}
+
+# Entry point at build time. Expects RECIPE_APP_NAME, RECIPE_APP_SLUG and
+# RECIPES_RAW_BASE in the environment and app.sh in RECIPE_LIB_DIR.
+install_main() {
+  : "${RECIPE_APP_NAME:?}" "${RECIPE_APP_SLUG:?}" "${RECIPES_RAW_BASE:?}"
+  (( EUID == 0 )) || fail "install_main must run as root."
+  load_app
+  check_network
+  setup_locale
+  os_upgrade
+  install_base_packages
+  step "Installing ${RECIPE_APP_NAME}"
+  app_install
+  write_conf "$RECIPES_RAW_BASE"
+  install_recipe_command
+  info_write "$(date '+%F %T')"
+  cleanup
+  msg "Done: ${RECIPE_APP_NAME} is installed."
+}
+
+# ---- app script -------------------------------------------------------------
+
+load_app() {
+  [[ -r "${RECIPE_LIB_DIR}/app.sh" ]] || fail "${RECIPE_LIB_DIR}/app.sh is missing."
+  # shellcheck source=/dev/null
+  source "${RECIPE_LIB_DIR}/app.sh"
+  declare -F app_install >/dev/null || fail "app.sh does not define app_install."
+  declare -F app_update  >/dev/null || fail "app.sh does not define app_update."
+}
+
+app_version_text() {
+  if declare -F app_version >/dev/null; then
+    app_version 2>/dev/null || printf 'unknown'
+  else
+    printf 'unknown'
+  fi
+}
+
+# ---- /etc/recipe/info -------------------------------------------------------
+#
+# Plain KEY=value lines (values shell-quoted), written only by this file.
+
+info_write() {   # <install date> [<last update date>]
+  mkdir -p "$RECIPE_ETC_DIR"
+  {
+    printf 'APP_NAME=%q\n'     "$RECIPE_APP_NAME"
+    printf 'APP_SLUG=%q\n'     "$RECIPE_APP_SLUG"
+    printf 'APP_VERSION=%q\n'  "$(app_version_text)"
+    printf 'APP_PORTS=%q\n'    "${APP_PORTS:-}"
+    printf 'APP_CONFIG=%q\n'   "${APP_CONFIG:-}"
+    printf 'INSTALLED=%q\n'    "$1"
+    printf 'UPDATED=%q\n'      "${2:-never}"
+  } >"$RECIPE_INFO"
+}
+
+info_load() {
+  [[ -r "$RECIPE_INFO" ]] || fail "${RECIPE_INFO} is missing; was this container built by proxmox-recipes?"
+  # shellcheck source=/dev/null
+  source "$RECIPE_INFO"
+  RECIPE_APP_NAME=$APP_NAME
+  RECIPE_APP_SLUG=$APP_SLUG
+}
+
+conf_load() {
+  [[ -r "$RECIPE_CONF" ]] || fail "${RECIPE_CONF} is missing."
+  # shellcheck source=/dev/null
+  source "$RECIPE_CONF"
+  : "${RECIPES_RAW_BASE:?RECIPES_RAW_BASE is not set in ${RECIPE_CONF}}"
+}
+
+# ---- the recipe command -----------------------------------------------------
+
+ct_ipv4() {
+  ip -4 -o addr show scope global 2>/dev/null | awk '{ sub(/\/.*/, "", $4); print $4 }' | paste -sd' ' -
+}
+
+cmd_help() {
+  cat <<'EOF'
+Usage: recipe <command>
+
+  update   Upgrade the OS packages, then update the app to the latest recipe.
+  info     Show the app, its version, IP address, ports and config location.
+  help     Show this help.
+EOF
+}
+
+# INSTALLED and UPDATED come from /etc/recipe/info (info_load).
+# shellcheck disable=SC2153
+cmd_info() {
+  info_load
+  load_app
+  printf '%-11s %s\n' \
+    "App:"       "$APP_NAME" \
+    "Version:"   "$(app_version_text)" \
+    "IP:"        "$(ct_ipv4)" \
+    "Ports:"     "${APP_PORTS:-none}" \
+    "Config:"    "${APP_CONFIG:-none}" \
+    "Installed:" "$INSTALLED" \
+    "Updated:"   "$UPDATED"
+}
+
+fetch_to() {   # <repo-relative path> <destination>
+  curl -fsSL --retry 2 --max-time 30 -o "$2" "${RECIPES_RAW_BASE}/$1" ||
+    fail "Could not download ${RECIPES_RAW_BASE}/$1"
+  bash -n "$2" || fail "Downloaded $1 has syntax errors; not using it."
+}
+
+cmd_update() {
+  local tmp
+  (( EUID == 0 )) || fail "Run 'recipe update' as root."
+  info_load
+  conf_load
+  os_upgrade
+
+  step "Fetching the latest recipe for ${APP_NAME}"
+  tmp=$(mktemp -d)
+  # shellcheck disable=SC2064  # expand now: tmp is local
+  trap "rm -rf -- '$tmp'" EXIT
+  fetch_to misc/install.func "${tmp}/install.func"
+  fetch_to "install/${APP_SLUG}.sh" "${tmp}/app.sh"
+  install -m 0644 "${tmp}/install.func" "${RECIPE_LIB_DIR}/install.func"
+  install -m 0644 "${tmp}/app.sh" "${RECIPE_LIB_DIR}/app.sh"
+
+  # Run the app update with the files just fetched, not the ones this
+  # process already loaded.
+  "$RECIPE_BIN" __update-app
+}
+
+# Second half of 'recipe update', run by the freshly fetched engine.
+cmd_update_app() {
+  local installed
+  info_load
+  installed=$INSTALLED
+  load_app
+  step "Updating ${APP_NAME}"
+  app_update
+  install_recipe_command
+  info_write "$installed" "$(date '+%F %T')"
+  msg "Done: ${APP_NAME} $(app_version_text) is up to date."
+}
+
+recipe_cli() {
+  case "${1:-help}" in
+    update)        cmd_update ;;
+    __update-app)  cmd_update_app ;;
+    info)          cmd_info ;;
+    help|-h|--help) cmd_help ;;
+    *) cmd_help >&2; exit 2 ;;
+  esac
+}
