@@ -12,6 +12,17 @@
 #   APP_NAME APP_SLUG APP_DEBIAN_RELEASE APP_DEFAULT_HOSTNAME
 #   APP_DEFAULT_CORES APP_DEFAULT_RAM_MB APP_DEFAULT_DISK_GB
 #   APP_INSTALL_SCRIPT   repo-relative path of install/<app>.sh
+#   APP_INSTALL_INTERACTIVE  yes if the app's official installer asks its
+#                        own questions; that step then runs in the
+#                        foreground on the user's terminal (default no)
+#   APP_ENV_VARS         array of app option variable names to pass into
+#                        the container install (e.g. PIHOLE_UNBOUND)
+#
+# Optional recipe hooks (functions defined in ct/<app>.sh):
+#   app_ask_options      ask app-specific questions with ui_* functions
+#   app_validate_options die if an app option is invalid
+#   app_settings_text    extra lines for the settings/confirm screen
+#   app_summary_text     extra lines for the final summary
 #
 # Source of the engine and app scripts:
 #   RECIPES_SRC   local checkout to load from (host side only)
@@ -355,6 +366,22 @@ ui_ask_destroy() {
   fi
 }
 
+# ---- recipe hooks -----------------------------------------------------------
+
+app_hook() {   # <hook name>: run it if the recipe defines it
+  if declare -F "$1" >/dev/null; then "$1"; fi
+}
+
+install_is_interactive() { [[ "${APP_INSTALL_INTERACTIVE:-no}" == yes ]]; }
+
+# Fail before anything is created if the app's installer will need a
+# terminal and there is none.
+check_interactive_install() {
+  if install_is_interactive && [[ ! -t 0 || ! -t 1 ]]; then
+    die "The ${APP_NAME} installer asks its own questions, so this recipe must run from an interactive shell."
+  fi
+}
+
 # ---- settings ---------------------------------------------------------------
 
 fill_defaults() {
@@ -399,6 +426,7 @@ validate_settings() {
   valid_password_opt "$CT_PASSWORD" || die "CT_PASSWORD must be at least 5 characters."
   valid_ssh_key_opt "$CT_SSH_KEY"   || die "CT_SSH_KEY is not a valid SSH public key."
   valid_yesno "$CT_ONBOOT"       || die "CT_ONBOOT must be 'yes' or 'no'."
+  app_hook app_validate_options
   step_end
 }
 
@@ -419,6 +447,7 @@ settings_text() {
     "DNS:       ${CT_DNS:-same as host}" \
     "Root:      ${login[*]}" \
     "On boot:   ${CT_ONBOOT}"
+  app_hook app_settings_text
 }
 
 collect_settings() {
@@ -428,6 +457,7 @@ collect_settings() {
   if [[ "$SETUP_MODE" == advanced ]]; then
     ui_ask_advanced
   fi
+  app_hook app_ask_options
   fill_defaults
   validate_settings
   ui_confirm
@@ -554,7 +584,7 @@ start_container() {
 }
 
 # Push the container-side engine and the app script into the container,
-# then run install_main there (see misc/install.func).
+# then run the install phases there (see misc/install.func).
 push_repo_file() {   # <repo-relative path> <path in container>
   local tmp rc=0
   tmp=$(mktemp)
@@ -574,17 +604,52 @@ push_install_files() {
   push_repo_file "$APP_INSTALL_SCRIPT" /usr/local/lib/recipe/app.sh
 }
 
-container_install() {
-  pct exec "$CT_ID" -- env \
-    RECIPE_APP_NAME="$APP_NAME" \
-    RECIPE_APP_SLUG="$APP_SLUG" \
-    RECIPES_RAW_BASE="$RECIPES_RAW_BASE" \
-    bash -c 'source /usr/local/lib/recipe/install.func && install_main'
+container_phase() {   # <install.func phase function> [tty]
+  local name run="source /usr/local/lib/recipe/install.func && $1"
+  local -a envs=(
+    RECIPE_APP_NAME="$APP_NAME"
+    RECIPE_APP_SLUG="$APP_SLUG"
+    RECIPES_RAW_BASE="$RECIPES_RAW_BASE"
+    TERM="${TERM:-xterm}"
+  )
+  for name in "${APP_ENV_VARS[@]}"; do
+    envs+=("${name}=${!name}")
+  done
+  if [[ "${2:-}" == tty ]]; then
+    # pct exec gives the process no controlling terminal in the container,
+    # so programs that open /dev/tty (dialog, used by Pi-hole's installer)
+    # fail. script(1), from bsdutils (essential in Debian), runs the phase
+    # on a new pseudo-terminal inside the container and returns its exit
+    # code.
+    pct exec "$CT_ID" -- env "${envs[@]}" \
+      script -qefc "bash -c '${run}'" /dev/null
+  else
+    pct exec "$CT_ID" -- env "${envs[@]}" bash -c "$run"
+  fi
+}
+
+# The app's own installer asks questions: run it on the user's terminal
+# instead of in run_step. Its output goes to the screen, not the log.
+run_interactive_install() {
+  RCP_STEP="Installing ${APP_NAME}"
+  log_line "STEP: ${RCP_STEP} (interactive, output not logged)"
+  say_head "Starting the ${APP_NAME} installer"
+  say "   It asks its own questions. Answer them to continue."
+  container_phase install_app tty
+  log_line "STEP OK: ${RCP_STEP}"
+  RCP_STEP=""
+  say_ok "Installing ${APP_NAME}"
 }
 
 run_app_install() {
   run_step "Copying install scripts" push_install_files
-  run_step "Installing ${APP_NAME}" container_install
+  run_step "Preparing container" container_phase install_prepare
+  if install_is_interactive; then
+    run_interactive_install
+  else
+    run_step "Installing ${APP_NAME}" container_phase install_app
+  fi
+  run_step "Finishing setup" container_phase install_finish
 }
 
 show_summary() {
@@ -595,6 +660,7 @@ show_summary() {
   say "  IPv4:      ${ip:-unknown}"
   say "  Console:   pct enter ${CT_ID}"
   say "  Log:       ${RCP_LOG}"
+  app_hook app_summary_text
 }
 
 # Called by rcp_fail (core.func) after a failure has been reported.
@@ -623,10 +689,12 @@ recipe_main() {
   : "${APP_NAME:?}" "${APP_SLUG:?}" "${APP_DEBIAN_RELEASE:?}" "${APP_DEFAULT_HOSTNAME:?}"
   : "${APP_DEFAULT_CORES:?}" "${APP_DEFAULT_RAM_MB:?}" "${APP_DEFAULT_DISK_GB:?}"
   : "${APP_INSTALL_SCRIPT:?}"
+  if ! declare -p APP_ENV_VARS >/dev/null 2>&1; then APP_ENV_VARS=(); fi
   rcp_install_traps
   log_start "$APP_SLUG"
   say_head "proxmox-recipes: ${APP_NAME}"
   preflight_checks
+  check_interactive_install
   collect_settings
   log_bind_ctid "$APP_SLUG" "$CT_ID"
   prepare_template

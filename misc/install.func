@@ -6,7 +6,9 @@
 # recipe builds, next to the app's own script (app.sh, a copy of
 # install/<app>.sh). It is used twice:
 #
-#   1. At build time the host pushes both files in and runs install_main.
+#   1. At build time the host pushes both files in and runs three phases:
+#      install_prepare, install_app (in the foreground when the app's own
+#      installer asks questions) and install_finish.
 #   2. Afterwards, /usr/local/bin/recipe sources it and calls recipe_cli.
 #
 # An app script (install/<app>.sh) defines:
@@ -16,7 +18,9 @@
 #   APP_PORTS       optional: ports the app listens on, e.g. "80/tcp 53/udp"
 #   APP_CONFIG      optional: where config or credentials live
 #
-# Nothing here reads input; it runs unattended.
+# Nothing here reads input itself. Only an app's own official installer,
+# run from app_install, may ask questions (see APP_INSTALL_INTERACTIVE in
+# misc/build.func).
 
 set -Eeuo pipefail
 
@@ -102,18 +106,32 @@ cleanup() {
   apt-get clean
 }
 
-# Entry point at build time. Expects RECIPE_APP_NAME, RECIPE_APP_SLUG and
-# RECIPES_RAW_BASE in the environment and app.sh in RECIPE_LIB_DIR.
-install_main() {
+# Build-time entry points, run by the host in this order. Each expects
+# RECIPE_APP_NAME, RECIPE_APP_SLUG and RECIPES_RAW_BASE in the environment
+# and app.sh in RECIPE_LIB_DIR, plus any app options the recipe forwards.
+
+install_phase_start() {
   : "${RECIPE_APP_NAME:?}" "${RECIPE_APP_SLUG:?}" "${RECIPES_RAW_BASE:?}"
-  (( EUID == 0 )) || fail "install_main must run as root."
+  (( EUID == 0 )) || fail "The install must run as root."
   load_app
+}
+
+install_prepare() {
+  install_phase_start
   check_network
   setup_locale
   os_upgrade
   install_base_packages
+}
+
+install_app() {
+  install_phase_start
   step "Installing ${RECIPE_APP_NAME}"
   app_install
+}
+
+install_finish() {
+  install_phase_start
   write_conf "$RECIPES_RAW_BASE"
   install_recipe_command
   info_write "$(date '+%F %T')"
