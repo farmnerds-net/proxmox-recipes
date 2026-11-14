@@ -1,6 +1,9 @@
 # proxmox-recipes
 
-Recipes that install self-hosted apps into Proxmox LXC containers.
+So this started out as, really, an admiration of 1st off the original site I came across that had Proxmox helper scripts. https://tteck.github.io/Proxmox/ r.i.p 
+and then over time I was searching for more containers, more VM's that were just a simple copy-paste script to get an app up and running quickly.
+Then the community scripts came on the scene and was growing very rapidly. https://community-scripts.org 
+And then just out of sheer curiosity and want, I wanted to try to replicate with some GitHub repos that weren't on the main helper scripts page yet. I figured out how to get a script going, decided for the time being I only wanted LXC's. No VM's yet, and I was making only installers for repos that I personally wanted to list out. Only GitHub repos. Only Debian for now. So that is where I am with this.
 
 ## Scope
 
