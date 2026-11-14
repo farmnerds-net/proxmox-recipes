@@ -3,7 +3,14 @@
 So this started out as, really, an admiration of 1st off the original site I came across that had Proxmox helper scripts. https://tteck.github.io/Proxmox/ r.i.p 
 and then over time I was searching for more containers, more VM's that were just a simple copy-paste script to get an app up and running quickly.
 Then the community scripts came on the scene and was growing very rapidly. https://community-scripts.org 
-And then just out of sheer curiosity and want, I wanted to try to replicate with some GitHub repos that weren't on the main helper scripts page yet. I figured out how to get a script going, decided for the time being I only wanted LXC's. No VM's yet, and I was making only installers for repos that I personally wanted to list out. Only GitHub repos. Only Debian for now. So that is where I am with this.
+And then just out of sheer curiosity and want, I wanted to try to replicate with some GitHub repos that weren't on the main helper scripts page yet. I figured out how to get a script going, decided for the time being I only wanted LXC's. No VM's yet, and I was making only installers for repos that I personally wanted to list out. 
+Only GitHub repos. 
+Only Debian for now. 
+Only native / bare-metal installs, no dockers.
+Only OFFICIAL native installs for the time being.
+I decided I will have an 'experimental' repo for apps that may get "undockerised" for native-install. Essentially non-official documented install scripts would be classified, to me, as experimental.
+I run every one of them individually before posting simply to make sure the container comes up and the app works.
+So that is where I am with this. I hope someone gets something out of this outside of just myself. Enjoy.
 
 ## Scope
 
