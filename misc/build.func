@@ -509,7 +509,7 @@ collect_settings() {
 
 # ---- template ---------------------------------------------------------------
 
-template_pattern() { printf '^debian-%s-standard_.*_amd64\\.tar\\.' "$APP_DEBIAN_RELEASE"; }
+template_pattern() { printf '^debian-%s-standard_.*_amd64[.]tar[.]' "$APP_DEBIAN_RELEASE"; }
 
 template_cached() {   # -> volid of newest matching template already on TMPL_STORAGE
   pveam list "$TMPL_STORAGE" 2>/dev/null |
