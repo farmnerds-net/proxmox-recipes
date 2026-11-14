@@ -87,9 +87,13 @@ Installed to `/usr/local/bin/recipe`.
 
 Claude Code runs as root on a Proxmox host. Protect it.
 
-- **Test on farmlab2 only**, never the production host.
+- **Test on farmlab or farmlab2.** Both hosts are allowed.
 - **Only create, modify, or destroy containers with IDs 900–999.** Never
   touch any other CT or VM, even to read-modify-write.
+- **Exception: CT 950 on farmlab** (`qbit-pia`) is a production container
+  in the test range until it is renumbered. Never touch it. Before creating a test CT, check
+  `pct list` / `qm list` and pick an unused ID. Only modify or destroy a
+  9xx CT that you created for the current test.
 - **Never change host config:** no edits to `/etc/network/`, `/etc/pve/`
   (except the 9xx CTs `pct` itself manages), storage, firewall, or cluster
   settings. If a recipe seems to need that, stop and ask.
