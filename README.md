@@ -14,8 +14,10 @@ Only native / bare-metal installs, no dockers.
 Only OFFICIAL native installs for the time being.
 
 I decided I will have an 'experimental' repo for apps that may get "undockerised" for native-install. Essentially non-official documented install scripts would be classified, to me, as experimental.
+
 I run every one of them individually before posting simply to make sure the container comes up and the app works.
-So that is where I am with this. I hope someone gets something out of this outside of just myself. Enjoy.
+So that is where I am with this. 
+I hope someone gets something out of this outside of just myself. Enjoy.
 
 ## Scope
 
