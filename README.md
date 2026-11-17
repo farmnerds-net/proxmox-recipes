@@ -46,6 +46,7 @@ official native install path, it doesn't belong in this repo.
 | [Caddy](docs/apps/caddy.md) | `caddy` | Reverse proxy with automatic HTTPS; no questions, sites in the Caddyfile. Pairs with Authelia |
 | [Tdarr](docs/apps/tdarr.md) | `tdarr` | Transcoding and library health checks: Server + a CPU Node, no questions. Bind-mount your media afterwards |
 | [FileFlows](docs/apps/fileflows.md) | `fileflows` | Flow-based file and media processing on Debian 13. No questions and no login (a paid feature), so keep it on a trusted network |
+| [Apache Guacamole](docs/apps/guacamole.md) | `guacamole` | Remote desktop (RDP, VNC, SSH) in the browser, with users and connections in PostgreSQL. No questions; compiles guacd, so the install takes a few minutes |
 
 ## Usage
 
