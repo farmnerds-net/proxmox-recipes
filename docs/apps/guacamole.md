@@ -32,6 +32,8 @@ The recipe follows the
   [database extension](https://guacamole.apache.org/doc/gug/postgresql-auth.html):
   creates `guacamole_db`, loads the schema, and creates `guacamole_user`
   with a random password
+- gives the `guacadmin` account a random password in place of the
+  schema's default `guacadmin`
 - checks every Apache download against Apache's published SHA-256/SHA-512
   checksum
 
@@ -80,9 +82,18 @@ UI, `http://<container-ip>:8080/guacamole/`.
 
 ### 1. Log in and secure the admin account
 
-The default login is **`guacadmin` / `guacadmin`**. Change the password
-right away, or better: create your own admin user with all permissions
-(**Settings > Users**), log in as it, and delete `guacadmin`.
+Log in as **`guacadmin`**. Guacamole's schema creates it with the
+well-known password `guacadmin`, so the recipe replaces that with a random
+password before the web app first starts. The install summary shows it,
+and it is saved in the container:
+
+```bash
+pct exec <id> -- cat /root/guacadmin-password
+```
+
+Then create your own admin user with all permissions (**Settings >
+Users**), log in as it, and delete `guacadmin`, or at least change its
+password. Delete `/root/guacadmin-password` once you have.
 
 ### 2. Add connections
 

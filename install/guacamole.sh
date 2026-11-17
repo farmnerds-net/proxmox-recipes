@@ -40,7 +40,7 @@
 # shellcheck disable=SC2034  # read by misc/install.func
 {
   APP_PORTS="8080/tcp (web UI, /guacamole/); guacd on 127.0.0.1:4822 only"
-  APP_CONFIG="/etc/guacamole/guacamole.properties (database login in it); data in PostgreSQL database guacamole_db"
+  APP_CONFIG="/etc/guacamole/guacamole.properties (database login in it); data in PostgreSQL database guacamole_db; first guacadmin password in /root/guacadmin-password"
 }
 
 GUAC_HOME="/etc/guacamole"
@@ -55,6 +55,7 @@ TC_USER="tomcat"
 GUAC_DB="guacamole_db"
 GUAC_DB_USER="guacamole_user"
 GUAC_PORT=8080
+GUAC_ADMIN_PW_FILE="/root/guacadmin-password"
 
 GUAC_BUILD_DEPS=(
   build-essential libcairo2-dev libjpeg62-turbo-dev libpng-dev libtool-bin uuid-dev
@@ -359,6 +360,7 @@ EOF
   cat "${tmp}/guacamole-auth-jdbc-${v}/postgresql/schema/"*.sql |
     pg_sql -d "$GUAC_DB" -f - >/dev/null
   guac_grants
+  guac_random_admin_password
   rm -rf "$tmp"
   (
     umask 027
@@ -381,6 +383,28 @@ postgresql-password: ${pw}
 EOF
   )
   chgrp "$TC_USER" "${GUAC_HOME}/guacamole.properties"
+}
+
+# The schema creates guacadmin with the well-known password 'guacadmin',
+# which the manual says to change at once. Replace it with a random one
+# before the web app ever starts. Guacamole stores
+# SHA-256(password + uppercase hex salt), as in 002-create-admin-user.sql.
+guac_random_admin_password() {
+  local pw salt hash
+  step "Setting a random password for guacadmin"
+  pw=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20) || true
+  salt=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n' | tr 'a-f' 'A-F')
+  [[ ${#pw} -eq 20 && ${#salt} -eq 64 ]] || fail "Could not generate the guacadmin password."
+  hash=$(printf '%s%s' "$pw" "$salt" | sha256sum | awk '{ print toupper($1) }')
+  pg_sql -d "$GUAC_DB" <<EOF
+UPDATE guacamole_user
+   SET password_hash = decode('${hash}', 'hex'),
+       password_salt = decode('${salt}', 'hex'),
+       password_date = CURRENT_TIMESTAMP
+ WHERE entity_id = (SELECT entity_id FROM guacamole_entity
+                     WHERE name = 'guacadmin' AND type = 'USER');
+EOF
+  ( umask 077; printf '%s\n' "$pw" >"$GUAC_ADMIN_PW_FILE" )
 }
 
 # Run each schema/upgrade/upgrade-pre-<X>.sql with old < X <= new, in order.

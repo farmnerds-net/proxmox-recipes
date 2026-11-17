@@ -27,13 +27,20 @@ set -Eeuo pipefail
   APP_INSTALL_SCRIPT="install/guacamole.sh"
 }
 
+guac_ct_admin_pw() {
+  pct exec "$CT_ID" -- cat /root/guacadmin-password 2>/dev/null || true
+}
+
 app_summary_text() {
-  say "  Login:     guacadmin / guacadmin (Guacamole's default). Change it right away."
+  say "  Login:     guacadmin / $(guac_ct_admin_pw)"
+  say "             (random; also in /root/guacadmin-password in the container)"
   say "  Install:   guacamole-server was compiled from source; updates rebuild it."
 }
 
+# The password itself stays out of the Notes, which every Proxmox user
+# who can see the container can read.
 app_notes_rows() {
-  notes_row "Login" "guacadmin / guacadmin (Guacamole's default): change it right away, or make your own admin and delete guacadmin"
+  notes_row "Login" "guacadmin; its random first password is in \`/root/guacadmin-password\` (\`pct exec ${CT_ID} -- cat /root/guacadmin-password\`). Change it, or make your own admin and delete guacadmin"
   notes_row "Connections" "Settings > Connections > New Connection (RDP, VNC, SSH, Telnet)"
   notes_row "Config" "\`/etc/guacamole/guacamole.properties\`; users and connections in PostgreSQL \`guacamole_db\`"
 }
