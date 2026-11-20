@@ -52,16 +52,18 @@ UI, `http://<container-ip>:8265/`.
 
 ### 1. Sign in
 
-Tdarr created an `admin` user. Its password is the seeded API key. Read it
-on the host with:
+Tdarr created an `admin` user. Its password is the seeded API key. The
+summary at the end of the install prints the key. To show it again, run
+this on the host:
 
 ```bash
-pct exec <id> -- cat /etc/tdarr/server.env
+pct exec <id> -- sed -n 's/^seededApiKey=//p' /etc/tdarr/server.env
 ```
 
-Sign in as `admin` with the value after `seededApiKey=`, then change the
-password in Tdarr. The API key keeps working after you change the
-password, and the internal Node uses it.
+Sign in as `admin` with that key, then change the password in Tdarr. The
+API key keeps working after you change the password, and the internal Node
+uses it. Other Nodes need the same key and the server address
+`http://<container-ip>:8266`.
 
 ### 2. Give the container your media
 

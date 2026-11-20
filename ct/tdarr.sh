@@ -31,18 +31,39 @@ set -Eeuo pipefail
   APP_INSTALL_SCRIPT="install/tdarr.sh"
 }
 
+# The seeded API key, read from the container. Printed only in the summary,
+# which goes to the terminal and not to the install log. The notes only say
+# how to show it, like every other recipe's credentials.
+tdarr_api_key() {
+  pct exec "$CT_ID" -- sed -n 's/^seededApiKey=//p' /etc/tdarr/server.env 2>/dev/null || true
+}
+
+tdarr_key_cmd() {
+  printf "pct exec %s -- sed -n 's/^seededApiKey=//p' /etc/tdarr/server.env" "$CT_ID"
+}
+
 app_summary_text() {
-  say "  Login:     user admin; password: pct exec ${CT_ID} -- cat /etc/tdarr/server.env"
-  say "             (the seededApiKey value; change the password in Tdarr afterwards)"
+  local ip key
+  ip=$(ct_ip_only)
+  key=$(tdarr_api_key)
+  say "  API key:   ${key:-could not read it; run: $(tdarr_key_cmd)}"
+  say "             Nodes need it. It is also the admin password until you change"
+  say "             that in Tdarr (changing the password does not change the key)."
+  say "  Login:     user admin, password = the API key above"
+  say "  Nodes:     connect other nodes to http://${ip:-<container-ip>}:8266 with the API key"
+  say "  Show key:  $(tdarr_key_cmd)"
   say "  Media:     not mounted yet. Add a bind mount from the host, e.g.:"
   say "             pct set ${CT_ID} -mp0 /path/on/host,mp=/media"
 }
 
 app_notes_rows() {
-  notes_row "Login" "user \`admin\`, password = the \`seededApiKey\` value: \`pct exec ${CT_ID} -- cat /etc/tdarr/server.env\`"
+  local ip
+  ip=$(ct_ip_only)
+  notes_row "API key" "nodes need it; show it on the host with \`$(tdarr_key_cmd)\`"
+  notes_row "Login" "user \`admin\`, password = the API key until you change it in Tdarr (the key stays the same)"
   notes_row "Media" "bind-mount it from the host: \`pct set ${CT_ID} -mp0 /path/on/host,mp=/media\`, then add a library for \`/media\`"
   notes_row "Transcode cache" "\`/opt/tdarr/cache\` (set it in each library's settings)"
-  notes_row "Nodes" "internal node \`${CT_HOSTNAME}-internal\` (CPU only); other nodes connect to port 8266 with the same API key"
+  notes_row "Nodes" "internal node \`${CT_HOSTNAME}-internal\` (CPU only); other nodes connect to \`http://${ip:-<container-ip>}:8266\` with the API key"
 }
 
 if [[ -n "${RECIPES_SRC:-}" ]]; then
