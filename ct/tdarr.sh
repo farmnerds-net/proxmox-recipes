@@ -23,7 +23,7 @@ set -Eeuo pipefail
 {
   APP_NAME="Tdarr"
   APP_SLUG="tdarr"
-  APP_DEBIAN_RELEASE=12
+  APP_DEBIAN_RELEASE=13
   APP_DEFAULT_HOSTNAME="tdarr"
   APP_DEFAULT_CORES=4      # the internal node transcodes on the CPU
   APP_DEFAULT_RAM_MB=4096
