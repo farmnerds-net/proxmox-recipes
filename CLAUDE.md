@@ -4,18 +4,26 @@ Read this before doing anything in this repo. These rules are not suggestions.
 
 ## What this repo is
 
-Interactive recipes that create a Debian LXC container on a Proxmox VE host
-and install one self-hosted app into it, natively. The engine in `misc/` is
-written from scratch for this repo.
+Interactive recipes that create a Debian LXC container or a Debian VM on a
+Proxmox VE host and install one self-hosted app into it, natively. The
+engine in `misc/` is written from scratch for this repo.
 
 ## Scope rules (hard)
 
-- **Debian LXC only.** No Ubuntu, Alpine, or other templates.
+- **Debian only, as an LXC container or a VM.** No Ubuntu, Alpine, or other
+  distros.
+- **Official base images only.** Containers use the Debian templates Proxmox
+  ships (`pveam`). VMs use Debian's own official images (the cloud images
+  from cloud.debian.org or the official installer ISO). No third-party,
+  community-made, or prebuilt appliance templates or VM images.
+- **A VM only when a container can't do the job**, e.g. the app needs its
+  own kernel modules or drivers (a GPU passed through to the VM). Otherwise
+  use a container.
 - **Native installs only, using a method upstream officially documents:**
   their apt repo or .deb, official release binaries/tarballs, documented
   build-from-source steps, or their own official installer.
-- **No Docker, no Podman, no container-in-container**, and no workarounds
-  upstream doesn't document (e.g. extracting files from a container image,
+- **No Docker, no Podman, no container-in-container** (in VMs too), and no
+  workarounds upstream doesn't document (e.g. extracting files from a container image,
   reverse-engineering a Dockerfile). If an app has no official native install
   path, it does not belong here. Stop and tell the user. Do not invent one.
 - Before writing an app recipe, find and cite the upstream doc page the
@@ -88,18 +96,18 @@ Installed to `/usr/local/bin/recipe`.
 Claude Code runs as root on a Proxmox host. Protect it.
 
 - **Test on farmlab or farmlab2.** Both hosts are allowed.
-- **Only create, modify, or destroy containers with IDs 900–999.** Never
-  touch any other CT or VM, even to read-modify-write.
+- **Only create, modify, or destroy containers and VMs with IDs 900–999.**
+  Never touch any other CT or VM, even to read-modify-write.
 - **Exception: CT 950 on farmlab** (`qbit-pia`) is a production container
   in the test range until it is renumbered. Never touch it. Before creating a test CT, check
   `pct list` / `qm list` and pick an unused ID. Only modify or destroy a
   9xx CT that you created for the current test.
 - **Never change host config:** no edits to `/etc/network/`, `/etc/pve/`
-  (except the 9xx CTs `pct` itself manages), storage, firewall, or cluster
+  (except the 9xx CTs and VMs that `pct` and `qm` themselves manage), storage, firewall, or cluster
   settings. If a recipe seems to need that, stop and ask.
-- Before `pct destroy`, confirm the ID is in 900–999.
-- Destroy test containers once a test passes; leave a failing one up only if
-  the user wants to inspect it.
+- Before `pct destroy` or `qm destroy`, confirm the ID is in 900–999.
+- Destroy test containers and VMs once a test passes; leave a failing one
+  up only if the user wants to inspect it.
 - Test DNS apps (Pi-hole, Unbound) by querying the container directly
   (`dig @<ct-ip>`). Never point the network or host at a test DNS server.
 - A stage is done only when ShellCheck passes **and** a real install on the
