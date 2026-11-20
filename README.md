@@ -21,10 +21,13 @@ I hope someone gets something out of this outside of just myself. Enjoy.
 
 ## Scope
 
-Debian LXC containers only. Apps are installed natively using a method the
-app's upstream officially documents: their apt repo or .deb, official release
-binaries, documented build-from-source steps, or their own installer. No
-Docker, no Podman, no undocumented workarounds. If an app doesn't have an
+Debian LXC containers and Debian VMs, built from official Debian images
+only (no third-party templates or prebuilt VM images). A recipe uses a VM
+only when a container can't do the job, such as passing in a GPU. Apps are
+installed natively using a method the app's upstream officially documents:
+their apt repo or .deb, official release binaries, documented
+build-from-source steps, or their own installer. No Docker, no Podman (in
+VMs either), no undocumented workarounds. If an app doesn't have an
 official native install path, it doesn't belong in this repo.
 
 ## Apps
