@@ -39,7 +39,7 @@ read and write whatever media you bind-mount in.
 
 | Setting   | Value                             |
 | --------- | --------------------------------- |
-| OS        | Debian 12, unprivileged container |
+| OS        | Debian 13, unprivileged container |
 | CPU       | 4 cores (the internal Node transcodes on the CPU) |
 | Memory    | 4 GB                              |
 | Disk      | 16 GB                             |
